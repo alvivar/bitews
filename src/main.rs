@@ -8,6 +8,7 @@ use std::{
 };
 
 use polling::{Event, Poller};
+use tungstenite::accept;
 
 mod conn;
 use conn::Connection;
@@ -49,6 +50,9 @@ fn main() -> io::Result<()> {
                     let (read_socket, addr) = server.accept()?;
                     read_socket.set_nonblocking(true)?;
                     let write_socket = read_socket.try_clone().unwrap();
+
+                    // let ws_socket = read_socket.try_clone().unwrap();
+                    // let ws = accept(ws_socket).unwrap();
 
                     println!("Connection #{} from {}", id, addr);
 
