@@ -8,7 +8,6 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1.15.0", features = ["full"] }
 tokio-tungstenite = "0.16.1"
-# tokio-util = "0.6.9"
 futures-util = "0.3.19"
 futures-channel = "0.3.19"
 url = "2.2.2"

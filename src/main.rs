@@ -25,10 +25,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use futures_channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
+use futures_channel::mpsc::{unbounded, UnboundedSender};
 use futures_util::{future, pin_mut, stream::TryStreamExt, StreamExt};
 
-use tokio::net::{tcp::WriteHalf, TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::Message;
 
 type Tx = UnboundedSender<Message>;
@@ -42,45 +42,29 @@ async fn handle_connection(peer_map: PeerMap, raw_stream: TcpStream, addr: Socke
         .expect("Error during the websocket handshake occurred");
     println!("WebSocket connection established: {}", addr);
 
-    let tcp = TcpStream::connect("0.0.0.0:1984").await.unwrap();
-    // let (biter, bitew) = tcp.split();
-    let (btx, brx) = unbounded::<Message>();
-
-    let bite_swap = brx.for_each(|msg| {
-        let msg = msg.into_data();
-        tcp.try_write(&msg).unwrap();
-
-        future::ready(())
-    });
-
     // Insert the write part of this peer to the peer map.
     let (tx, rx) = unbounded();
-    let socket_tx = tx.clone();
     peer_map.lock().unwrap().insert(addr, tx);
 
     let (outgoing, incoming) = ws_stream.split();
+
     let broadcast_incoming = incoming.try_for_each(|msg| {
         println!(
             "Received a message from {}: {}",
             addr,
             msg.to_text().unwrap()
         );
-
-        let msg = msg.into_data();
-
-        // let peers = peer_map.lock().unwrap();
-
-        // @todo Send bite response to this socket.
+        let peers = peer_map.lock().unwrap();
 
         // We want to broadcast the message to everyone except ourselves.
-        // let broadcast_recipients = peers
-        //     .iter()
-        //     .filter(|(peer_addr, _)| peer_addr != &&addr)
-        //     .map(|(_, ws_sink)| ws_sink);
+        let broadcast_recipients = peers
+            .iter()
+            .filter(|(peer_addr, _)| peer_addr != &&addr)
+            .map(|(_, ws_sink)| ws_sink);
 
-        // for recp in broadcast_recipients {
-        //     recp.unbounded_send(msg.clone()).unwrap();
-        // }
+        for recp in broadcast_recipients {
+            recp.unbounded_send(msg.clone()).unwrap();
+        }
 
         future::ok(())
     });
