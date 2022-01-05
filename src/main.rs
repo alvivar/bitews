@@ -12,6 +12,9 @@ use tungstenite::{self};
 mod conn;
 use conn::Connection;
 
+mod bite;
+use bite::Bite;
+
 fn main() -> io::Result<()> {
     println!("\nbit:e Proxy\n");
 
@@ -56,7 +59,7 @@ fn main() -> io::Result<()> {
                         }
                     }
 
-                    // One more.
+                    // Next!
                     id += 1;
                 }
 
