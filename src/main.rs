@@ -1,20 +1,16 @@
 use std::{
     collections::HashMap,
     io::{self},
-    net::{TcpListener, TcpStream},
+    net::TcpListener,
     str::from_utf8,
-    sync::{Arc, Mutex},
-    thread,
+    sync::Arc,
 };
 
 use polling::{Event, Poller};
-use tungstenite::{self, WebSocket};
+use tungstenite::{self};
 
 mod conn;
 use conn::Connection;
-
-mod writer;
-use writer::Writer;
 
 fn main() -> io::Result<()> {
     println!("\nbit:e Proxy\n");
@@ -28,15 +24,7 @@ fn main() -> io::Result<()> {
     let poller = Arc::new(poller);
 
     // The connections
-    let mut readers = HashMap::<usize, Connection>::new();
-    let writers = HashMap::<usize, Connection>::new();
-    let writers = Arc::new(Mutex::new(writers));
-    let mut websockets = HashMap::<usize, WebSocket<TcpStream>>::new();
-
-    // The writer
-    let writer = Writer::new(writers.clone(), poller.clone());
-    let writer_tx = writer.tx.clone();
-    thread::spawn(move || writer.handle());
+    let mut websockets = HashMap::<usize, Connection>::new();
 
     // Connections and events via smol Poller.
     let mut id: usize = 1;
@@ -46,21 +34,20 @@ fn main() -> io::Result<()> {
         events.clear();
         poller.wait(&mut events, None)?;
 
-        for ev in &events {
-            match ev.key {
+        for event in &events {
+            match event.key {
                 0 => {
-                    let (read_socket, addr) = server.accept()?;
-                    // read_socket.set_nonblocking(true)?;
-                    let write_socket = read_socket.try_clone().unwrap();
-                    let ws_socket = read_socket.try_clone().unwrap();
+                    let (socket, addr) = server.accept()?;
 
                     // The server continues listening for more clients, always 0.
                     poller.modify(&server, Event::readable(0))?;
 
                     // Try as websocket.
-                    match tungstenite::accept(ws_socket) {
+                    match tungstenite::accept(socket) {
                         Ok(ws) => {
-                            websockets.insert(id, ws);
+                            // Register the reading socket for events.
+                            poller.add(ws.get_ref(), Event::readable(id))?;
+                            websockets.insert(id, Connection::new(id, ws, addr));
                             println!("Connection #{} from {}", id, addr);
                         }
                         Err(err) => {
@@ -69,26 +56,14 @@ fn main() -> io::Result<()> {
                         }
                     }
 
-                    // Register the reading socket for events.
-                    poller.add(&read_socket, Event::readable(id))?;
-                    readers.insert(id, Connection::new(id, read_socket, addr));
-
-                    // Register the writing socket for events.
-                    poller.add(&write_socket, Event::none(id))?;
-                    writers
-                        .lock()
-                        .unwrap()
-                        .insert(id, Connection::new(id, write_socket, addr));
-
                     // One more.
                     id += 1;
                 }
 
-                id if ev.readable => {
-                    if let Some(conn) = readers.get_mut(&id) {
-                        let ws = websockets.get_mut(&id).unwrap();
-                        handle_reading(conn, ws);
-                        poller.modify(&conn.socket, Event::readable(id))?;
+                id if event.readable => {
+                    if let Some(conn) = websockets.get_mut(&id) {
+                        handle_reading(conn);
+                        poller.modify(conn.socket.get_ref(), Event::readable(id))?;
 
                         // One at the time.
                         if !conn.received.is_empty() {
@@ -98,41 +73,36 @@ fn main() -> io::Result<()> {
                             if let Ok(utf8) = from_utf8(&received) {
                                 println!("{}", utf8);
 
-                                writer_tx
-                                    .send(writer::Cmd::Write(conn.id, utf8.to_owned()))
+                                conn.to_write.push(utf8.into());
+
+                                poller
+                                    .modify(conn.socket.get_ref(), Event::writable(conn.id))
                                     .unwrap();
                             }
                         }
 
                         // Forget it, it died.
                         if conn.closed {
-                            poller.delete(&conn.socket)?;
-                            readers.remove(&id).unwrap();
-                            writers.lock().unwrap().remove(&id);
+                            poller.delete(conn.socket.get_ref())?;
                             websockets.remove(&id).unwrap();
                         }
                     }
                 }
 
-                id if ev.writable => {
-                    let mut writers = writers.lock().unwrap();
-
-                    if let Some(conn) = writers.get_mut(&id) {
-                        let ws = websockets.get_mut(&id).unwrap();
-                        handle_writing(conn, ws);
+                id if event.writable => {
+                    if let Some(conn) = websockets.get_mut(&id) {
+                        handle_writing(conn);
 
                         // We need to send more.
                         if !conn.to_write.is_empty() {
                             poller
-                                .modify(&conn.socket, Event::writable(conn.id))
+                                .modify(conn.socket.get_ref(), Event::writable(conn.id))
                                 .unwrap();
                         }
 
                         // Forget it, it died.
                         if conn.closed {
-                            poller.delete(&conn.socket)?;
-                            readers.remove(&id).unwrap();
-                            writers.remove(&id);
+                            poller.delete(conn.socket.get_ref())?;
                             websockets.remove(&id).unwrap();
                         }
                     }
@@ -145,8 +115,8 @@ fn main() -> io::Result<()> {
     }
 }
 
-fn handle_reading(conn: &mut Connection, ws: &mut WebSocket<TcpStream>) {
-    let data = match ws.read_message() {
+fn handle_reading(conn: &mut Connection) {
+    let data = match conn.socket.read_message() {
         Ok(msg) => msg.into_data(),
         Err(err) => {
             println!("Connection #{} broken, read failed: {}", conn.id, err);
@@ -158,13 +128,16 @@ fn handle_reading(conn: &mut Connection, ws: &mut WebSocket<TcpStream>) {
     conn.received.push(data);
 }
 
-fn handle_writing(conn: &mut Connection, ws: &mut WebSocket<TcpStream>) {
+fn handle_writing(conn: &mut Connection) {
     let data = conn.to_write.remove(0);
     let data = from_utf8(&data).unwrap();
 
     // @todo Text or binary?
 
-    if let Err(err) = ws.write_message(tungstenite::Message::Text(data.to_owned())) {
+    if let Err(err) = conn
+        .socket
+        .write_message(tungstenite::Message::Text(data.to_owned()))
+    {
         println!("Connection #{} broken, write failed: {}", conn.id, err);
         conn.closed = true;
     }
