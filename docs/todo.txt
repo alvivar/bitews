@@ -1,0 +1,8 @@
+
+    Bite structure
+    An structure to poll all the bites in a thread
+
+
+    2022.01.05
+    x But, polling from smol has been chosen again
+    x Lots of experimentation with Tokio
