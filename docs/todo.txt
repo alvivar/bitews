@@ -1,4 +1,5 @@
 
+    Think about bite, this sounds crazy, one bite to rule them all
     Bite structure
     An structure to poll all the bites in a thread
 
