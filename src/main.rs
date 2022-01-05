@@ -16,7 +16,7 @@ fn main() -> io::Result<()> {
     println!("\nbit:e Proxy\n");
 
     // The server and the smol poller
-    let server = TcpListener::bind("0.0.0.0:1984")?;
+    let server = TcpListener::bind("0.0.0.0:1983")?;
     server.set_nonblocking(true)?;
 
     let poller = Poller::new()?;
@@ -71,7 +71,9 @@ fn main() -> io::Result<()> {
 
                             // Instructions should be string.
                             if let Ok(utf8) = from_utf8(&received) {
-                                println!("{}", utf8);
+                                if !utf8.is_empty() {
+                                    println!("{}", utf8);
+                                }
 
                                 conn.to_write.push(utf8.into());
 
