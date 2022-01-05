@@ -45,7 +45,7 @@ fn main() -> io::Result<()> {
                     // Try as websocket.
                     match tungstenite::accept(socket) {
                         Ok(ws) => {
-                            // Register the reading socket for events.
+                            // Register the socket for reading events.
                             poller.add(ws.get_ref(), Event::readable(id))?;
                             websockets.insert(id, Connection::new(id, ws, addr));
                             println!("Connection #{} from {}", id, addr);
