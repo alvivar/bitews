@@ -13,7 +13,7 @@ mod conn;
 use conn::Connection;
 
 mod bite;
-use bite::Bite;
+use bite::Cluster;
 
 fn main() -> io::Result<()> {
     println!("\nbit:e Proxy\n");
@@ -80,9 +80,7 @@ fn main() -> io::Result<()> {
 
                                 conn.to_write.push(utf8.into());
 
-                                poller
-                                    .modify(conn.socket.get_ref(), Event::writable(conn.id))
-                                    .unwrap();
+                                poller.modify(conn.socket.get_ref(), Event::writable(conn.id))?
                             }
                         }
 
@@ -100,9 +98,7 @@ fn main() -> io::Result<()> {
 
                         // We need to send more.
                         if !conn.to_write.is_empty() {
-                            poller
-                                .modify(conn.socket.get_ref(), Event::writable(conn.id))
-                                .unwrap();
+                            poller.modify(conn.socket.get_ref(), Event::writable(conn.id))?;
                         }
 
                         // Forget it, it died.
@@ -137,7 +133,7 @@ fn handle_writing(conn: &mut Connection) {
     let data = conn.to_write.remove(0);
     let data = from_utf8(&data).unwrap();
 
-    // @todo Text or binary?
+    // @todo Text vs binary?
 
     if let Err(err) = conn
         .socket
