@@ -6,7 +6,6 @@ use std::{
         Read, Write,
     },
     net::TcpStream,
-    ops::Add,
     str::from_utf8,
     sync::mpsc::{channel, Receiver, Sender},
 };
@@ -18,23 +17,25 @@ pub struct Bite {
     socket: TcpStream,
     tx: Sender<String>,
     rx: Receiver<String>,
+    forward: Sender<Response>,
     received: Vec<Vec<u8>>,
     to_write: Vec<Vec<u8>>,
     closed: bool,
 }
 
 impl Bite {
-    pub fn new(ip: &str) -> Bite {
+    pub fn new(id: usize, ip: &str, forward: Sender<Response>) -> Bite {
         let socket = TcpStream::connect(ip).unwrap(); // "127.0.0.1:1984"
         let (tx, rx) = channel::<String>();
         let received = Vec::<Vec<u8>>::new();
         let to_write = Vec::<Vec<u8>>::new();
 
         Bite {
-            id: 0,
+            id,
             socket,
             tx,
             rx,
+            forward,
             received,
             to_write,
             closed: false,
@@ -42,41 +43,41 @@ impl Bite {
     }
 }
 
-enum Command {}
+pub enum Command {
+    Insert(usize, String, Sender<Response>),
+    Write(usize, String),
+}
+
+pub enum Response {
+    Write(usize, String),
+}
 
 pub struct Cluster {
-    id: usize,
+    count: usize,
     poller: Poller,
     bites: HashMap<usize, Bite>,
+    pub tx: Sender<Command>,
+    rx: Receiver<Command>,
 }
 
 impl Cluster {
     pub fn new() -> Self {
-        let id = 0;
+        let count = 0;
         let poller = Poller::new().unwrap();
         let bites = HashMap::<usize, Bite>::new();
+        let (tx, rx) = channel::<Command>();
 
-        Cluster { id, poller, bites }
-    }
-
-    pub fn insert(&mut self, ip: &str) -> usize {
-        self.bites.insert(self.id, Bite::new(ip));
-        self.id += 1;
-        self.id
-    }
-
-    pub fn write(&mut self, id: usize, value: &str) {
-        if let Some(bite) = self.bites.get_mut(&id) {
-            bite.to_write.push(value.into());
-
-            self.poller
-                .modify(&bite.socket, Event::writable(id))
-                .unwrap();
+        Self {
+            count,
+            poller,
+            bites,
+            tx,
+            rx,
         }
     }
 
     pub fn get_tx(&mut self, id: usize) -> Option<Sender<String>> {
-        if let Some(bite) = self.bites.get_mut(&id) {
+        if let Some(bite) = self.bites.get(&id) {
             Some(bite.tx.clone())
         } else {
             None
@@ -87,6 +88,29 @@ impl Cluster {
         let mut events = Vec::new();
 
         loop {
+            // Commands
+
+            match self.rx.try_recv() {
+                Ok(Command::Insert(id, ip, forward)) => {
+                    self.bites.insert(id, Bite::new(id, &ip, forward));
+                    self.count += 1;
+                }
+
+                Ok(Command::Write(id, value)) => {
+                    if let Some(bite) = self.bites.get_mut(&id) {
+                        bite.to_write.push(value.into());
+
+                        self.poller
+                            .modify(&bite.socket, Event::writable(id))
+                            .unwrap();
+                    }
+                }
+
+                Err(_) => panic!("Panic: Cluster command failed"),
+            }
+
+            // Polling
+
             events.clear();
             self.poller.wait(&mut events, None).unwrap();
 

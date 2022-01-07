@@ -3,7 +3,8 @@ use std::{
     io::{self},
     net::TcpListener,
     str::from_utf8,
-    sync::Arc,
+    sync::{mpsc::channel, Arc},
+    thread::spawn,
 };
 
 use polling::{Event, Poller};
@@ -12,8 +13,8 @@ use tungstenite::{self};
 mod conn;
 use conn::Connection;
 
-mod bite;
-use bite::Cluster;
+mod bites;
+use bites::{Cluster, Command, Response};
 
 fn main() -> io::Result<()> {
     println!("\nbit:e Proxy\n");
@@ -29,11 +30,34 @@ fn main() -> io::Result<()> {
     // The connections
     let mut websockets = HashMap::<usize, Connection>::new();
 
+    // The channel
+    let (tx, rx) = channel::<Response>();
+
+    // The Bite cluster
+    let mut cluster = Cluster::new();
+    let cluster_tx = cluster.tx.clone();
+    spawn(move || cluster.handle());
+
     // Connections and events via smol Poller.
     let mut id: usize = 1;
     let mut events = Vec::new();
 
     loop {
+        // Commands
+
+        match rx.try_recv() {
+            Ok(Response::Write(id, value)) => {
+                if let Some(conn) = websockets.get_mut(&id) {
+                    conn.to_write.push(value.into());
+                    poller.modify(conn.socket.get_ref(), Event::writable(conn.id))?
+                }
+            }
+
+            Err(_) => todo!(),
+        }
+
+        // Polling
+
         events.clear();
         poller.wait(&mut events, None)?;
 
@@ -51,6 +75,11 @@ fn main() -> io::Result<()> {
                             // Register the socket for reading events.
                             poller.add(ws.get_ref(), Event::readable(id))?;
                             websockets.insert(id, Connection::new(id, ws, addr));
+
+                            cluster_tx
+                                .send(Command::Insert(id, "0.0.0.0:1983".into(), tx.clone()))
+                                .unwrap();
+
                             println!("Connection #{} from {}", id, addr);
                         }
                         Err(err) => {
@@ -79,7 +108,6 @@ fn main() -> io::Result<()> {
                                 }
 
                                 conn.to_write.push(utf8.into());
-
                                 poller.modify(conn.socket.get_ref(), Event::writable(conn.id))?
                             }
                         }
