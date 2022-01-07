@@ -46,14 +46,14 @@ fn main() -> io::Result<()> {
         // Commands
 
         match rx.try_recv() {
-            Ok(Response::Write(id, value)) => {
-                if let Some(conn) = websockets.get_mut(&id) {
-                    conn.to_write.push(value.into());
-                    poller.modify(conn.socket.get_ref(), Event::writable(conn.id))?
+            Ok(Response::From(id, value)) => {
+                if let Some(socket) = websockets.get_mut(&id) {
+                    socket.to_write.push(value.into());
+                    poller.modify(socket.socket.get_ref(), Event::writable(id))?
                 }
             }
 
-            Err(_) => todo!(),
+            Err(_) => (),
         }
 
         // Polling
@@ -66,18 +66,16 @@ fn main() -> io::Result<()> {
                 0 => {
                     let (socket, addr) = server.accept()?;
 
-                    // The server continues listening for more clients, always 0.
                     poller.modify(&server, Event::readable(0))?;
 
                     // Try as websocket.
                     match tungstenite::accept(socket) {
                         Ok(ws) => {
-                            // Register the socket for reading events.
                             poller.add(ws.get_ref(), Event::readable(id))?;
                             websockets.insert(id, Connection::new(id, ws, addr));
 
                             cluster_tx
-                                .send(Command::Insert(id, "0.0.0.0:1983".into(), tx.clone()))
+                                .send(Command::Insert(id, "0.0.0.0:1984".into(), tx.clone()))
                                 .unwrap();
 
                             println!("Connection #{} from {}", id, addr);
@@ -97,22 +95,18 @@ fn main() -> io::Result<()> {
                         handle_reading(conn);
                         poller.modify(conn.socket.get_ref(), Event::readable(id))?;
 
-                        // One at the time.
                         if !conn.received.is_empty() {
                             let received = conn.received.remove(0);
 
-                            // Instructions should be string.
                             if let Ok(utf8) = from_utf8(&received) {
                                 if !utf8.is_empty() {
                                     println!("{}", utf8);
                                 }
 
-                                conn.to_write.push(utf8.into());
-                                poller.modify(conn.socket.get_ref(), Event::writable(conn.id))?
+                                cluster_tx.send(Command::Write(id, utf8.into())).unwrap();
                             }
                         }
 
-                        // Forget it, it died.
                         if conn.closed {
                             poller.delete(conn.socket.get_ref())?;
                             websockets.remove(&id).unwrap();
@@ -124,12 +118,10 @@ fn main() -> io::Result<()> {
                     if let Some(conn) = websockets.get_mut(&id) {
                         handle_writing(conn);
 
-                        // We need to send more.
                         if !conn.to_write.is_empty() {
                             poller.modify(conn.socket.get_ref(), Event::writable(conn.id))?;
                         }
 
-                        // Forget it, it died.
                         if conn.closed {
                             poller.delete(conn.socket.get_ref())?;
                             websockets.remove(&id).unwrap();

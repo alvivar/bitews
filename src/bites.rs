@@ -15,27 +15,22 @@ use polling::{Event, Poller};
 pub struct Bite {
     id: usize,
     socket: TcpStream,
-    tx: Sender<String>,
-    rx: Receiver<String>,
-    forward: Sender<Response>,
+    response_tx: Sender<Response>,
     received: Vec<Vec<u8>>,
     to_write: Vec<Vec<u8>>,
     closed: bool,
 }
 
 impl Bite {
-    pub fn new(id: usize, ip: &str, forward: Sender<Response>) -> Bite {
+    pub fn new(id: usize, ip: &str, response_tx: Sender<Response>) -> Bite {
         let socket = TcpStream::connect(ip).unwrap(); // "127.0.0.1:1984"
-        let (tx, rx) = channel::<String>();
         let received = Vec::<Vec<u8>>::new();
         let to_write = Vec::<Vec<u8>>::new();
 
         Bite {
             id,
             socket,
-            tx,
-            rx,
-            forward,
+            response_tx,
             received,
             to_write,
             closed: false,
@@ -46,10 +41,11 @@ impl Bite {
 pub enum Command {
     Insert(usize, String, Sender<Response>),
     Write(usize, String),
+    // Drop
 }
 
 pub enum Response {
-    Write(usize, String),
+    From(usize, String),
 }
 
 pub struct Cluster {
@@ -76,14 +72,6 @@ impl Cluster {
         }
     }
 
-    pub fn get_tx(&mut self, id: usize) -> Option<Sender<String>> {
-        if let Some(bite) = self.bites.get(&id) {
-            Some(bite.tx.clone())
-        } else {
-            None
-        }
-    }
-
     pub fn handle(&mut self) {
         let mut events = Vec::new();
 
@@ -91,9 +79,10 @@ impl Cluster {
             // Commands
 
             match self.rx.try_recv() {
-                Ok(Command::Insert(id, ip, forward)) => {
-                    self.bites.insert(id, Bite::new(id, &ip, forward));
+                Ok(Command::Insert(id, ip, response)) => {
+                    self.bites.insert(id, Bite::new(id, &ip, response));
                     self.count += 1;
+                    println!("Bite #{} created", id)
                 }
 
                 Ok(Command::Write(id, value)) => {
@@ -106,13 +95,17 @@ impl Cluster {
                     }
                 }
 
-                Err(_) => panic!("Panic: Cluster command failed"),
+                Err(_) => (),
             }
 
             // Polling
 
+            println!("Polling start");
+
             events.clear();
             self.poller.wait(&mut events, None).unwrap();
+
+            println!("Polling after wait");
 
             for event in &events {
                 match event.key {
@@ -128,10 +121,8 @@ impl Cluster {
                                         println!("{}", utf8);
                                     }
 
-                                    bite.to_write.push(utf8.into());
-
-                                    self.poller
-                                        .modify(&bite.socket, Event::writable(id))
+                                    bite.response_tx
+                                        .send(Response::From(id, utf8.into()))
                                         .unwrap();
                                 }
                             } else {
