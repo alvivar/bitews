@@ -1,4 +1,6 @@
 
+    Dispose correctly of connections and bites
+
     Fails when the websocket sends nothing
     Proxy URL should be a parameters
     Handle Bite disconnection
@@ -6,7 +8,7 @@
 
     2022.01.08 04.37 am
     x Pretty awesome proxy with Bite
-    x Think about bite, this sounds crazy, one bite to rule them all
+    x Think about bite, this sounds crazy, one b to rule them all
     x Bite structure
     x An structure to poll all the bites in a thread
 
