@@ -52,8 +52,6 @@ pub struct Cluster {
     count: usize,
     poller: Poller,
     bites: HashMap<usize, Bite>,
-    pub tx: Sender<Command>,
-    rx: Receiver<Command>,
 }
 
 impl Cluster {
@@ -61,14 +59,11 @@ impl Cluster {
         let count = 0;
         let poller = Poller::new().unwrap();
         let bites = HashMap::<usize, Bite>::new();
-        let (tx, rx) = channel::<Command>();
 
         Self {
             count,
             poller,
             bites,
-            tx,
-            rx,
         }
     }
 
@@ -78,25 +73,25 @@ impl Cluster {
         loop {
             // Commands
 
-            match self.rx.try_recv() {
-                Ok(Command::Insert(id, ip, response)) => {
-                    self.bites.insert(id, Bite::new(id, &ip, response));
-                    self.count += 1;
-                    println!("Bite #{} created", id)
-                }
+            // match self.rx.try_recv() {
+            //     Ok(Command::Insert(id, ip, response)) => {
+            //         self.bites.insert(id, Bite::new(id, &ip, response));
+            //         self.count += 1;
+            //         println!("Bite #{} created", id)
+            //     }
 
-                Ok(Command::Write(id, value)) => {
-                    if let Some(bite) = self.bites.get_mut(&id) {
-                        bite.to_write.push(value.into());
+            //     Ok(Command::Write(id, value)) => {
+            //         if let Some(bite) = self.bites.get_mut(&id) {
+            //             bite.to_write.push(value.into());
 
-                        self.poller
-                            .modify(&bite.socket, Event::writable(id))
-                            .unwrap();
-                    }
-                }
+            //             self.poller
+            //                 .modify(&bite.socket, Event::writable(id))
+            //                 .unwrap();
+            //         }
+            //     }
 
-                Err(_) => (),
-            }
+            //     Err(_) => (),
+            // }
 
             // Polling
 

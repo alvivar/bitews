@@ -30,12 +30,8 @@ fn main() -> io::Result<()> {
     // The connections
     let mut websockets = HashMap::<usize, Connection>::new();
 
-    // The channel
-    let (tx, rx) = channel::<Response>();
-
     // The Bite cluster
     let mut cluster = Cluster::new();
-    let cluster_tx = cluster.tx.clone();
     spawn(move || cluster.handle());
 
     // Connections and events via smol Poller.
@@ -45,16 +41,16 @@ fn main() -> io::Result<()> {
     loop {
         // Commands
 
-        match rx.try_recv() {
-            Ok(Response::From(id, value)) => {
-                if let Some(socket) = websockets.get_mut(&id) {
-                    socket.to_write.push(value.into());
-                    poller.modify(socket.socket.get_ref(), Event::writable(id))?
-                }
-            }
+        // match rx.try_recv() {
+        //     Ok(Response::From(id, value)) => {
+        //         if let Some(socket) = websockets.get_mut(&id) {
+        //             socket.to_write.push(value.into());
+        //             poller.modify(socket.socket.get_ref(), Event::writable(id))?
+        //         }
+        //     }
 
-            Err(_) => (),
-        }
+        //     Err(_) => (),
+        // }
 
         // Polling
 
@@ -74,9 +70,9 @@ fn main() -> io::Result<()> {
                             poller.add(ws.get_ref(), Event::readable(id))?;
                             websockets.insert(id, Connection::new(id, ws, addr));
 
-                            cluster_tx
-                                .send(Command::Insert(id, "0.0.0.0:1984".into(), tx.clone()))
-                                .unwrap();
+                            // cluster_tx
+                            //     .send(Command::Insert(id, "0.0.0.0:1984".into(), tx.clone()))
+                            //     .unwrap();
 
                             println!("Connection #{} from {}", id, addr);
                         }
@@ -103,7 +99,7 @@ fn main() -> io::Result<()> {
                                     println!("{}", utf8);
                                 }
 
-                                cluster_tx.send(Command::Write(id, utf8.into())).unwrap();
+                                // cluster_tx.send(Command::Write(id, utf8.into())).unwrap();
                             }
                         }
 
