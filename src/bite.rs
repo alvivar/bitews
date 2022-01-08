@@ -1,0 +1,25 @@
+use std::net::TcpStream;
+
+pub struct Bite {
+    pub id: usize,
+    pub socket: TcpStream,
+    pub received: Vec<Vec<u8>>,
+    pub to_write: Vec<Vec<u8>>,
+    pub closed: bool,
+}
+
+impl Bite {
+    pub fn new(id: usize, ip: &str) -> Bite {
+        let socket = TcpStream::connect(ip).unwrap(); // "127.0.0.1:1984"
+        let received = Vec::<Vec<u8>>::new();
+        let to_write = Vec::<Vec<u8>>::new();
+
+        Bite {
+            id,
+            socket,
+            received,
+            to_write,
+            closed: false,
+        }
+    }
+}

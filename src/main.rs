@@ -1,10 +1,13 @@
 use std::{
     collections::HashMap,
-    io::{self},
-    net::TcpListener,
+    io::{
+        self,
+        ErrorKind::{BrokenPipe, Interrupted, WouldBlock},
+        Read, Write,
+    },
+    net::{TcpListener, TcpStream},
     str::from_utf8,
-    sync::{mpsc::channel, Arc},
-    thread::spawn,
+    sync::Arc,
 };
 
 use polling::{Event, Poller};
@@ -13,8 +16,8 @@ use tungstenite::{self};
 mod conn;
 use conn::Connection;
 
-mod bites;
-use bites::{Cluster, Command, Response};
+mod bite;
+use bite::Bite;
 
 fn main() -> io::Result<()> {
     println!("\nbit:e Proxy\n");
@@ -29,31 +32,13 @@ fn main() -> io::Result<()> {
 
     // The connections
     let mut websockets = HashMap::<usize, Connection>::new();
-
-    // The Bite cluster
-    let mut cluster = Cluster::new();
-    spawn(move || cluster.handle());
+    let mut bites = HashMap::<usize, Bite>::new();
 
     // Connections and events via smol Poller.
     let mut id: usize = 1;
     let mut events = Vec::new();
 
     loop {
-        // Commands
-
-        // match rx.try_recv() {
-        //     Ok(Response::From(id, value)) => {
-        //         if let Some(socket) = websockets.get_mut(&id) {
-        //             socket.to_write.push(value.into());
-        //             poller.modify(socket.socket.get_ref(), Event::writable(id))?
-        //         }
-        //     }
-
-        //     Err(_) => (),
-        // }
-
-        // Polling
-
         events.clear();
         poller.wait(&mut events, None)?;
 
@@ -64,15 +49,20 @@ fn main() -> io::Result<()> {
 
                     poller.modify(&server, Event::readable(0))?;
 
-                    // Try as websocket.
+                    // Try as websocket, creating a Bite connection for it.
                     match tungstenite::accept(socket) {
                         Ok(ws) => {
                             poller.add(ws.get_ref(), Event::readable(id))?;
-                            websockets.insert(id, Connection::new(id, ws, addr));
+                            let conn = Connection::new(id, ws, addr);
+                            websockets.insert(id, conn);
 
-                            // cluster_tx
-                            //     .send(Command::Insert(id, "0.0.0.0:1984".into(), tx.clone()))
-                            //     .unwrap();
+                            id += 1;
+
+                            let bite = Bite::new(id, "0.0.0.0:1984".into());
+                            poller.add(&bite.socket, Event::readable(id))?;
+                            bites.insert(id, bite);
+
+                            id += 1;
 
                             println!("Connection #{} from {}", id, addr);
                         }
@@ -81,15 +71,13 @@ fn main() -> io::Result<()> {
                             continue;
                         }
                     }
-
-                    // Next!
-                    id += 1;
                 }
 
                 id if event.readable => {
+                    // Websockets Read
+
                     if let Some(conn) = websockets.get_mut(&id) {
-                        handle_reading(conn);
-                        poller.modify(conn.socket.get_ref(), Event::readable(id))?;
+                        try_read_websocket(conn);
 
                         if !conn.received.is_empty() {
                             let received = conn.received.remove(0);
@@ -99,8 +87,13 @@ fn main() -> io::Result<()> {
                                     println!("{}", utf8);
                                 }
 
-                                // cluster_tx.send(Command::Write(id, utf8.into())).unwrap();
+                                conn.to_write.push(utf8.into());
+                                poller.modify(conn.socket.get_ref(), Event::writable(id))?
+                            } else {
+                                poller.modify(conn.socket.get_ref(), Event::readable(id))?;
                             }
+                        } else {
+                            poller.modify(conn.socket.get_ref(), Event::readable(id))?;
                         }
 
                         if conn.closed {
@@ -108,19 +101,63 @@ fn main() -> io::Result<()> {
                             websockets.remove(&id).unwrap();
                         }
                     }
+
+                    // Bites Read
+
+                    if let Some(bite) = bites.get_mut(&id) {
+                        try_read_bite(bite);
+
+                        if !bite.received.is_empty() {
+                            let received = bite.received.remove(0);
+
+                            if let Ok(utf8) = from_utf8(&received) {
+                                if !utf8.is_empty() {
+                                    println!("{}", utf8);
+                                }
+                            }
+                        } else {
+                            poller.modify(&bite.socket, Event::readable(id)).unwrap();
+                        }
+
+                        if bite.closed {
+                            poller.delete(&bite.socket).unwrap();
+                            bites.remove(&id).unwrap();
+                        }
+                    }
                 }
 
                 id if event.writable => {
+                    // Websockets Write
+
                     if let Some(conn) = websockets.get_mut(&id) {
-                        handle_writing(conn);
+                        try_write_websocket(conn);
 
                         if !conn.to_write.is_empty() {
-                            poller.modify(conn.socket.get_ref(), Event::writable(conn.id))?;
+                            poller.modify(conn.socket.get_ref(), Event::writable(id))?;
+                        } else {
+                            poller.modify(conn.socket.get_ref(), Event::readable(id))?;
                         }
 
                         if conn.closed {
                             poller.delete(conn.socket.get_ref())?;
                             websockets.remove(&id).unwrap();
+                        }
+                    }
+
+                    // Bite Write
+
+                    if let Some(bite) = bites.get_mut(&id) {
+                        try_write_bite(bite);
+
+                        if !bite.to_write.is_empty() {
+                            poller.modify(&bite.socket, Event::writable(id))?;
+                        } else {
+                            poller.modify(&bite.socket, Event::readable(id))?;
+                        }
+
+                        if bite.closed {
+                            poller.delete(&bite.socket)?;
+                            bites.remove(&id).unwrap();
                         }
                     }
                 }
@@ -132,7 +169,7 @@ fn main() -> io::Result<()> {
     }
 }
 
-fn handle_reading(conn: &mut Connection) {
+fn try_read_websocket(conn: &mut Connection) {
     let data = match conn.socket.read_message() {
         Ok(msg) => msg.into_data(),
         Err(err) => {
@@ -145,7 +182,7 @@ fn handle_reading(conn: &mut Connection) {
     conn.received.push(data);
 }
 
-fn handle_writing(conn: &mut Connection) {
+fn try_write_websocket(conn: &mut Connection) {
     let data = conn.to_write.remove(0);
     let data = from_utf8(&data).unwrap();
 
@@ -158,4 +195,59 @@ fn handle_writing(conn: &mut Connection) {
         println!("Connection #{} broken, write failed: {}", conn.id, err);
         conn.closed = true;
     }
+}
+
+fn try_read_bite(bite: &mut Bite) {
+    let data = match read_socket(&mut bite.socket) {
+        Ok(data) => data,
+        Err(error) => {
+            println!("Bite #{} broken, read failed: {}", bite.id, error);
+            bite.closed = true;
+            return;
+        }
+    };
+
+    bite.received.push(data);
+}
+
+fn try_write_bite(bite: &mut Bite) {
+    let data = bite.to_write.remove(0);
+
+    if let Err(err) = bite.socket.write(&data) {
+        println!("Bite #{} broken, write failed: {}", bite.id, err);
+        bite.closed = true;
+    }
+}
+
+fn read_socket(socket: &mut TcpStream) -> io::Result<Vec<u8>> {
+    let mut received = vec![0; 1024 * 4];
+    let mut bytes_read = 0;
+
+    loop {
+        match socket.read(&mut received[bytes_read..]) {
+            Ok(0) => {
+                // Reading 0 bytes means the other side has closed the
+                // connection or is done writing, then so are we.
+                return Err(io::Error::new(BrokenPipe, "0 bytes read"));
+            }
+            Ok(n) => {
+                bytes_read += n;
+                if bytes_read == received.len() {
+                    received.resize(received.len() + 1024, 0);
+                }
+            }
+            // Would block "errors" are the OS's way of saying that the
+            // connection is not actually ready to perform this I/O operation.
+            Err(ref err) if err.kind() == WouldBlock => break,
+            Err(ref err) if err.kind() == Interrupted => continue,
+            Err(err) => return Err(err),
+        }
+    }
+
+    // let received_data = &received_data[..bytes_read];
+    // @todo Using the slice and returning with into() versus using the resize?
+
+    received.resize(bytes_read, 0);
+
+    Ok(received)
 }
