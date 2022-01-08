@@ -1,4 +1,7 @@
-use std::net::{SocketAddr, TcpStream};
+use std::{
+    net::{SocketAddr, TcpStream},
+    str::from_utf8,
+};
 
 use tungstenite::WebSocket;
 
@@ -30,6 +33,34 @@ impl Connection {
             received,
             to_write,
             closed: false,
+        }
+    }
+
+    pub fn read(&mut self) {
+        let data = match self.socket.read_message() {
+            Ok(msg) => msg.into_data(),
+            Err(err) => {
+                println!("Connection #{} closed, read failed: {}", self.id, err);
+                self.closed = true;
+                return;
+            }
+        };
+
+        self.received.push(data);
+    }
+
+    pub fn write(&mut self) {
+        let data = self.to_write.remove(0);
+        let data = from_utf8(&data).unwrap();
+
+        // @todo Text vs binary?
+
+        if let Err(err) = self
+            .socket
+            .write_message(tungstenite::Message::Text(data.to_owned()))
+        {
+            println!("Connection #{} closed, write failed: {}", self.id, err);
+            self.closed = true;
         }
     }
 }

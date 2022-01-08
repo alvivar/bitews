@@ -1,11 +1,7 @@
 use std::{
     collections::HashMap,
-    io::{
-        self,
-        ErrorKind::{BrokenPipe, Interrupted, WouldBlock},
-        Read, Write,
-    },
-    net::{TcpListener, TcpStream},
+    io::{self},
+    net::TcpListener,
     str::from_utf8,
     sync::Arc,
 };
@@ -30,7 +26,7 @@ fn main() -> io::Result<()> {
     poller.add(&server, Event::readable(0))?;
     let poller = Arc::new(poller);
 
-    // The connections
+    // Connections
     let mut connections = HashMap::<usize, Connection>::new();
     let mut bites = HashMap::<usize, Bite>::new();
 
@@ -75,17 +71,17 @@ fn main() -> io::Result<()> {
                         }
 
                         Err(err) => {
-                            println!("WebSocket #{} broken: {}", id, err);
+                            println!("Connection #{} broken: {}", id, err);
                             continue;
                         }
                     }
                 }
 
                 id if event.readable => {
-                    // WebSocket Read
+                    // WebSocket reading
 
                     if let Some(conn) = connections.get_mut(&id) {
-                        try_read(conn);
+                        conn.read();
 
                         if !conn.received.is_empty() {
                             let received = conn.received.remove(0);
@@ -120,10 +116,10 @@ fn main() -> io::Result<()> {
                         }
                     }
 
-                    // Bite Read
+                    // Bite reading
 
                     if let Some(bite) = bites.get_mut(&id) {
-                        read_bite(bite);
+                        bite.read();
 
                         poller.modify(&bite.socket, Event::readable(id))?;
 
@@ -154,11 +150,11 @@ fn main() -> io::Result<()> {
                 }
 
                 id if event.writable => {
-                    // WebSocket Write
+                    // WebSocket writing
 
                     if let Some(conn) = connections.get_mut(&id) {
                         println!("Writing to WebSocket #{}: {:?}", conn.id, conn.to_write);
-                        try_write(conn);
+                        conn.write();
 
                         if !conn.to_write.is_empty() {
                             poller.modify(conn.socket.get_ref(), Event::writable(id))?;
@@ -175,11 +171,11 @@ fn main() -> io::Result<()> {
                         }
                     }
 
-                    // Bite Write
+                    // Bite writing
 
                     if let Some(bite) = bites.get_mut(&id) {
                         println!("Writing to Bite #{}: {:?}", bite.id, bite.to_write);
-                        write_bite(bite);
+                        bite.write();
 
                         if !bite.to_write.is_empty() {
                             poller.modify(&bite.socket, Event::writable(id))?;
@@ -198,91 +194,8 @@ fn main() -> io::Result<()> {
                 }
 
                 // Events that I don't care. @doubt Does it include Event::none?
-                _ => (),
+                _ => panic!("Panic: Unknown polling event"),
             }
         }
     }
-}
-
-fn try_read(conn: &mut Connection) {
-    let data = match conn.socket.read_message() {
-        Ok(msg) => msg.into_data(),
-        Err(err) => {
-            println!("Connection #{} broken, read failed: {}", conn.id, err);
-            conn.closed = true;
-            return;
-        }
-    };
-
-    conn.received.push(data);
-}
-
-fn try_write(conn: &mut Connection) {
-    let data = conn.to_write.remove(0);
-    let data = from_utf8(&data).unwrap();
-
-    // @todo Text vs binary?
-
-    if let Err(err) = conn
-        .socket
-        .write_message(tungstenite::Message::Text(data.to_owned()))
-    {
-        println!("Connection #{} broken, write failed: {}", conn.id, err);
-        conn.closed = true;
-    }
-}
-
-fn read_bite(bite: &mut Bite) {
-    let data = match read_socket(&mut bite.socket) {
-        Ok(data) => data,
-        Err(error) => {
-            println!("Bite #{} broken, read failed: {}", bite.id, error);
-            bite.closed = true;
-            return;
-        }
-    };
-
-    bite.received.push(data);
-}
-
-fn write_bite(bite: &mut Bite) {
-    let data = bite.to_write.remove(0);
-
-    if let Err(err) = bite.socket.write(&data) {
-        println!("Bite #{} broken, write failed: {}", bite.id, err);
-        bite.closed = true;
-    }
-}
-
-fn read_socket(socket: &mut TcpStream) -> io::Result<Vec<u8>> {
-    let mut received = vec![0; 1024 * 4];
-    let mut bytes_read = 0;
-
-    loop {
-        match socket.read(&mut received[bytes_read..]) {
-            Ok(0) => {
-                // Reading 0 bytes means the other side has closed the
-                // connection or is done writing, then so are we.
-                return Err(io::Error::new(BrokenPipe, "0 bytes read"));
-            }
-            Ok(n) => {
-                bytes_read += n;
-                if bytes_read == received.len() {
-                    received.resize(received.len() + 1024, 0);
-                }
-            }
-            // Would block "errors" are the OS's way of saying that the
-            // connection is not actually ready to perform this I/O operation.
-            Err(ref err) if err.kind() == WouldBlock => break,
-            Err(ref err) if err.kind() == Interrupted => continue,
-            Err(err) => return Err(err),
-        }
-    }
-
-    // let received_data = &received_data[..bytes_read];
-    // @todo Using the slice and returning with into() versus using the resize?
-
-    received.resize(bytes_read, 0);
-
-    Ok(received)
 }
