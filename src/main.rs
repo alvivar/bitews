@@ -46,25 +46,26 @@ fn main() -> io::Result<()> {
             match event.key {
                 0 => {
                     let (socket, addr) = server.accept()?;
-
                     poller.modify(&server, Event::readable(0))?;
 
                     // Try as websocket, creating a Bite connection for it.
                     match tungstenite::accept(socket) {
                         Ok(ws) => {
-                            poller.add(ws.get_ref(), Event::readable(id))?;
-                            let conn = Connection::new(id, ws, addr);
+                            println!("Connection #{} from {}", id, addr);
+
+                            let ws_id = id;
+                            id += 1;
+
+                            let bite_id = id;
+                            id += 1;
+
+                            poller.add(ws.get_ref(), Event::readable(ws_id))?;
+                            let conn = Connection::new(id, bite_id, ws, addr);
                             websockets.insert(id, conn);
 
-                            id += 1;
-
-                            let bite = Bite::new(id, "0.0.0.0:1984".into());
-                            poller.add(&bite.socket, Event::readable(id))?;
+                            let bite = Bite::new(id, ws_id, "0.0.0.0:1984".into());
+                            poller.add(&bite.socket, Event::readable(bite_id))?;
                             bites.insert(id, bite);
-
-                            id += 1;
-
-                            println!("Connection #{} from {}", id, addr);
                         }
                         Err(err) => {
                             println!("Connection #{} broken: {}", id, err);

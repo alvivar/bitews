@@ -2,6 +2,7 @@ use std::net::TcpStream;
 
 pub struct Bite {
     pub id: usize,
+    pub belong_id: usize,
     pub socket: TcpStream,
     pub received: Vec<Vec<u8>>,
     pub to_write: Vec<Vec<u8>>,
@@ -9,13 +10,14 @@ pub struct Bite {
 }
 
 impl Bite {
-    pub fn new(id: usize, ip: &str) -> Bite {
+    pub fn new(id: usize, belong_id: usize, ip: &str) -> Bite {
         let socket = TcpStream::connect(ip).unwrap(); // "127.0.0.1:1984"
         let received = Vec::<Vec<u8>>::new();
         let to_write = Vec::<Vec<u8>>::new();
 
         Bite {
             id,
+            belong_id,
             socket,
             received,
             to_write,
