@@ -20,7 +20,7 @@ mod bite;
 use bite::Bite;
 
 fn main() -> io::Result<()> {
-    println!("\nbit:e Proxy\n");
+    println!("\nbite Proxy\n");
 
     // The server and the smol poller
     let server = TcpListener::bind("0.0.0.0:1983")?;
@@ -31,7 +31,7 @@ fn main() -> io::Result<()> {
     let poller = Arc::new(poller);
 
     // The connections
-    let mut websockets = HashMap::<usize, Connection>::new();
+    let mut connections = HashMap::<usize, Connection>::new();
     let mut bites = HashMap::<usize, Bite>::new();
 
     // Connections and events via smol Poller.
@@ -43,53 +43,67 @@ fn main() -> io::Result<()> {
         poller.wait(&mut events, None)?;
 
         for event in &events {
+            println!(
+                "+\nPolling #{} (Reading = {}, Writing = {})",
+                event.key, event.readable, event.writable
+            );
+
             match event.key {
                 0 => {
                     let (socket, addr) = server.accept()?;
+                    socket.set_nonblocking(true)?;
                     poller.modify(&server, Event::readable(0))?;
 
                     // Try as websocket, creating a Bite connection for it.
                     match tungstenite::accept(socket) {
                         Ok(ws) => {
-                            println!("Connection #{} from {}", id, addr);
-
-                            let ws_id = id;
+                            let conn_id = id;
                             id += 1;
 
                             let bite_id = id;
                             id += 1;
 
-                            poller.add(ws.get_ref(), Event::readable(ws_id))?;
-                            let conn = Connection::new(id, bite_id, ws, addr);
-                            websockets.insert(id, conn);
+                            poller.add(ws.get_ref(), Event::readable(conn_id))?;
+                            let conn = Connection::new(conn_id, bite_id, ws, addr);
+                            connections.insert(conn_id, conn);
+                            println!("WebSocket #{} from {} ready to poll", conn_id, addr);
 
-                            let bite = Bite::new(id, ws_id, "0.0.0.0:1984".into());
+                            let bite = Bite::new(bite_id, conn_id, "0.0.0.0:1984".into());
                             poller.add(&bite.socket, Event::readable(bite_id))?;
-                            bites.insert(id, bite);
+                            bites.insert(bite_id, bite);
+                            println!("Bite #{} ready to poll", bite_id);
                         }
+
                         Err(err) => {
-                            println!("Connection #{} broken: {}", id, err);
+                            println!("WebSocket #{} broken: {}", id, err);
                             continue;
                         }
                     }
                 }
 
                 id if event.readable => {
-                    // Websockets Read
+                    // WebSocket Read
 
-                    if let Some(conn) = websockets.get_mut(&id) {
-                        try_read_websocket(conn);
+                    if let Some(conn) = connections.get_mut(&id) {
+                        try_read(conn);
 
                         if !conn.received.is_empty() {
                             let received = conn.received.remove(0);
 
                             if let Ok(utf8) = from_utf8(&received) {
                                 if !utf8.is_empty() {
-                                    println!("{}", utf8);
+                                    println!("WebSocket #{} from {}: {}", conn.id, conn.addr, utf8);
                                 }
 
-                                conn.to_write.push(utf8.into());
-                                poller.modify(conn.socket.get_ref(), Event::writable(id))?
+                                // WebSocket -> Bite
+                                if let Some(bite) = bites.get_mut(&conn.belong_id) {
+                                    bite.to_write.push(utf8.into());
+                                    poller.modify(&bite.socket, Event::writable(bite.id))?;
+                                }
+
+                                // Echo
+                                // conn.to_write.push(utf8.into());
+                                // poller.modify(conn.socket.get_ref(), Event::writable(id))?
                             } else {
                                 poller.modify(conn.socket.get_ref(), Event::readable(id))?;
                             }
@@ -98,40 +112,53 @@ fn main() -> io::Result<()> {
                         }
 
                         if conn.closed {
+                            let bite = bites.remove(&conn.belong_id).unwrap();
+                            poller.delete(&bite.socket)?;
+
                             poller.delete(conn.socket.get_ref())?;
-                            websockets.remove(&id).unwrap();
+                            connections.remove(&id).unwrap();
                         }
                     }
 
-                    // Bites Read
+                    // Bite Read
 
                     if let Some(bite) = bites.get_mut(&id) {
-                        try_read_bite(bite);
+                        read_bite(bite);
+
+                        poller.modify(&bite.socket, Event::readable(id))?;
 
                         if !bite.received.is_empty() {
                             let received = bite.received.remove(0);
 
                             if let Ok(utf8) = from_utf8(&received) {
                                 if !utf8.is_empty() {
-                                    println!("{}", utf8);
+                                    println!("Bite #{}: {}", bite.id, utf8);
+                                }
+
+                                // From bite to the websocket
+                                if let Some(cnn) = connections.get_mut(&bite.belong_id) {
+                                    cnn.to_write.push(utf8.into());
+                                    poller.modify(cnn.socket.get_ref(), Event::writable(cnn.id))?;
                                 }
                             }
-                        } else {
-                            poller.modify(&bite.socket, Event::readable(id)).unwrap();
                         }
 
                         if bite.closed {
-                            poller.delete(&bite.socket).unwrap();
+                            let conn = connections.remove(&bite.belong_id).unwrap();
+                            poller.delete(conn.socket.get_ref())?;
+
+                            poller.delete(&bite.socket)?;
                             bites.remove(&id).unwrap();
                         }
                     }
                 }
 
                 id if event.writable => {
-                    // Websockets Write
+                    // WebSocket Write
 
-                    if let Some(conn) = websockets.get_mut(&id) {
-                        try_write_websocket(conn);
+                    if let Some(conn) = connections.get_mut(&id) {
+                        println!("Writing to WebSocket #{}: {:?}", conn.id, conn.to_write);
+                        try_write(conn);
 
                         if !conn.to_write.is_empty() {
                             poller.modify(conn.socket.get_ref(), Event::writable(id))?;
@@ -140,15 +167,19 @@ fn main() -> io::Result<()> {
                         }
 
                         if conn.closed {
+                            let bite = bites.remove(&conn.belong_id).unwrap();
+                            poller.delete(&bite.socket)?;
+
                             poller.delete(conn.socket.get_ref())?;
-                            websockets.remove(&id).unwrap();
+                            connections.remove(&id).unwrap();
                         }
                     }
 
                     // Bite Write
 
                     if let Some(bite) = bites.get_mut(&id) {
-                        try_write_bite(bite);
+                        println!("Writing to Bite #{}: {:?}", bite.id, bite.to_write);
+                        write_bite(bite);
 
                         if !bite.to_write.is_empty() {
                             poller.modify(&bite.socket, Event::writable(id))?;
@@ -157,6 +188,9 @@ fn main() -> io::Result<()> {
                         }
 
                         if bite.closed {
+                            let ws = connections.remove(&bite.belong_id).unwrap();
+                            poller.delete(ws.socket.get_ref())?;
+
                             poller.delete(&bite.socket)?;
                             bites.remove(&id).unwrap();
                         }
@@ -170,7 +204,7 @@ fn main() -> io::Result<()> {
     }
 }
 
-fn try_read_websocket(conn: &mut Connection) {
+fn try_read(conn: &mut Connection) {
     let data = match conn.socket.read_message() {
         Ok(msg) => msg.into_data(),
         Err(err) => {
@@ -183,7 +217,7 @@ fn try_read_websocket(conn: &mut Connection) {
     conn.received.push(data);
 }
 
-fn try_write_websocket(conn: &mut Connection) {
+fn try_write(conn: &mut Connection) {
     let data = conn.to_write.remove(0);
     let data = from_utf8(&data).unwrap();
 
@@ -198,7 +232,7 @@ fn try_write_websocket(conn: &mut Connection) {
     }
 }
 
-fn try_read_bite(bite: &mut Bite) {
+fn read_bite(bite: &mut Bite) {
     let data = match read_socket(&mut bite.socket) {
         Ok(data) => data,
         Err(error) => {
@@ -211,7 +245,7 @@ fn try_read_bite(bite: &mut Bite) {
     bite.received.push(data);
 }
 
-fn try_write_bite(bite: &mut Bite) {
+fn write_bite(bite: &mut Bite) {
     let data = bite.to_write.remove(0);
 
     if let Err(err) = bite.socket.write(&data) {

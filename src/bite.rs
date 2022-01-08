@@ -11,7 +11,8 @@ pub struct Bite {
 
 impl Bite {
     pub fn new(id: usize, belong_id: usize, ip: &str) -> Bite {
-        let socket = TcpStream::connect(ip).unwrap(); // "127.0.0.1:1984"
+        let socket = TcpStream::connect(ip).unwrap();
+        socket.set_nonblocking(true).unwrap();
         let received = Vec::<Vec<u8>>::new();
         let to_write = Vec::<Vec<u8>>::new();
 
