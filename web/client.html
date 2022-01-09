@@ -1,48 +1,57 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title>Websocket Client</title>
+    <title>WebSocket Client</title>
   </head>
   <body>
-    <h1>Websocket Client</h1>
+    <h1>WebSocket Client</h1>
 
-    <div id="chat">
-      <p><em>Connecting...</em></p>
-    </div>
-
-    <input type="text" id="text" />
+    <p><em id="status">Connecting...</em></p>
+    <input type="text" id="text" autofocus />
     <button type="button" id="send">Send</button>
+    <div id="chat"></div>
 
     <script type="text/javascript">
-      const chat = document.getElementById('chat')
-      const text = document.getElementById('text')
-
       const uri = 'ws://127.0.0.1:1983/'
       const ws = new WebSocket(uri)
 
-      function message(data) {
-        const line = document.createElement('p')
-        line.innerText = data
-        chat.appendChild(line)
-      }
+      const chat = document.getElementById('chat')
+      const text = document.getElementById('text')
+      const status = document.getElementById('status')
 
       ws.onopen = function () {
-        chat.innerHTML = '<p><em>Connected!</em></p>'
+        status.innerHTML = 'Connected!'
       }
 
       ws.onmessage = function (msg) {
-        message(msg.data)
+        WriteLine(msg.data)
       }
 
       ws.onclose = function () {
-        chat.getElementsByTagName('em')[0].innerText = 'Disconnected!'
+        status.innerHTML = 'Disconnected!'
       }
 
+      text.addEventListener('keydown', function (e) {
+        if (event.key === 'Enter') {
+          SendText()
+        }
+      })
+
       send.onclick = function () {
+        SendText()
+      }
+
+      function SendText() {
         const msg = text.value
         ws.send(msg)
         text.value = ''
-        message('<You>: ' + msg)
+        WriteLine('<You>: ' + msg)
+      }
+
+      function WriteLine(data) {
+        const line = document.createElement('p')
+        line.innerText = data
+        chat.insertBefore(line, chat.firstChild)
       }
     </script>
   </body>
