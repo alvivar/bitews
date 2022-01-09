@@ -114,9 +114,11 @@ fn main() -> io::Result<()> {
                         if conn.closed {
                             let bite = bites.remove(&conn.belong_id).unwrap();
                             poller.delete(&bite.socket)?;
+                            println!("Dropping Bite #{}", bite.id);
 
                             poller.delete(conn.socket.get_ref())?;
                             connections.remove(&id).unwrap();
+                            println!("Dropping WebSocket #{}", id);
                         } else {
                             poller.modify(conn.socket.get_ref(), Event::readable(id))?;
                         }
@@ -143,9 +145,11 @@ fn main() -> io::Result<()> {
                         if bite.closed {
                             let conn = connections.remove(&bite.belong_id).unwrap();
                             poller.delete(conn.socket.get_ref())?;
+                            println!("Dropping WebSocket #{}", conn.id);
 
                             poller.delete(&bite.socket)?;
                             bites.remove(&id).unwrap();
+                            println!("Dropping Bite #{}", id);
                         } else {
                             poller.modify(&bite.socket, Event::readable(id))?;
                         }
@@ -161,9 +165,11 @@ fn main() -> io::Result<()> {
                         if conn.closed {
                             let bite = bites.remove(&conn.belong_id).unwrap();
                             poller.delete(&bite.socket)?;
+                            println!("Dropping Bite #{}", bite.id);
 
                             poller.delete(conn.socket.get_ref())?;
                             connections.remove(&id).unwrap();
+                            println!("Dropping WebSocket #{}", id);
                         } else if !conn.to_write.is_empty() {
                             poller.modify(conn.socket.get_ref(), Event::writable(id))?;
                         } else {
@@ -179,9 +185,11 @@ fn main() -> io::Result<()> {
                         if bite.closed {
                             let conn = connections.remove(&bite.belong_id).unwrap();
                             poller.delete(conn.socket.get_ref())?;
+                            println!("Dropping WebSocket #{}", conn.id);
 
                             poller.delete(&bite.socket)?;
                             bites.remove(&id).unwrap();
+                            println!("Dropping Bite #{}", id);
                         } else if !bite.to_write.is_empty() {
                             poller.modify(&bite.socket, Event::writable(id))?;
                         } else {
