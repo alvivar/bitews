@@ -17,20 +17,26 @@ pub struct Bite {
 }
 
 impl Bite {
-    pub fn new(id: usize, belong_id: usize, ip: &str) -> Bite {
-        let socket = TcpStream::connect(ip).unwrap();
-        socket.set_nonblocking(true).unwrap();
+    pub fn new(id: usize, belong_id: usize, ip: &str) -> Option<Bite> {
+        let socket = match TcpStream::connect(ip) {
+            Ok(stream) => {
+                stream.set_nonblocking(true).unwrap();
+                stream
+            }
+            Err(_) => return None,
+        };
+
         let received = Vec::<Vec<u8>>::new();
         let to_write = Vec::<Vec<u8>>::new();
 
-        Bite {
+        Some(Bite {
             id,
             belong_id,
             socket,
             received,
             to_write,
             closed: false,
-        }
+        })
     }
 
     pub fn read(&mut self) {

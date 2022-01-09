@@ -59,19 +59,30 @@ fn main() -> io::Result<()> {
                             let bite_id = id;
                             id += 1;
 
-                            poller.add(ws.get_ref(), Event::readable(conn_id))?;
-                            let conn = Connection::new(conn_id, bite_id, ws, addr);
-                            connections.insert(conn_id, conn);
-                            println!("WebSocket #{} from {} ready to poll", conn_id, addr);
-
+                            // Bite is a requirement.
                             let bite = Bite::new(bite_id, conn_id, "0.0.0.0:1984".into());
-                            poller.add(&bite.socket, Event::readable(bite_id))?;
-                            bites.insert(bite_id, bite);
-                            println!("Bite #{} ready to poll", bite_id);
+                            match bite {
+                                Some(bite) => {
+                                    poller.add(ws.get_ref(), Event::readable(conn_id))?;
+                                    let conn = Connection::new(conn_id, bite_id, ws, addr);
+                                    connections.insert(conn_id, conn);
+                                    println!("WebSocket #{} from {} ready to poll", conn_id, addr);
+
+                                    poller.add(&bite.socket, Event::readable(bite_id))?;
+                                    bites.insert(bite_id, bite);
+                                    println!("Bite #{} ready to poll", bite_id);
+                                }
+
+                                None => {
+                                    id -= 2; // Rolling back id calculation.
+                                    println!("Ignoring connection: Bite server unavailable");
+                                    continue;
+                                }
+                            }
                         }
 
                         Err(err) => {
-                            println!("Connection #{} broken: {}", id, err);
+                            println!("WebSocket connection #{} broken: {}", id, err);
                             continue;
                         }
                     }
@@ -79,7 +90,6 @@ fn main() -> io::Result<()> {
 
                 id if event.readable => {
                     // WebSocket reading
-
                     if let Some(conn) = connections.get_mut(&id) {
                         conn.read();
 
@@ -87,24 +97,18 @@ fn main() -> io::Result<()> {
                             let received = conn.received.remove(0);
 
                             if let Ok(utf8) = from_utf8(&received) {
-                                if !utf8.is_empty() {
-                                    println!("WebSocket #{} from {}: {}", conn.id, conn.addr, utf8);
-                                }
+                                println!("WebSocket #{} from {}: {}", conn.id, conn.addr, utf8);
 
-                                // WebSocket -> Bite
+                                // From WebSocket to Bite
                                 if let Some(bite) = bites.get_mut(&conn.belong_id) {
                                     bite.to_write.push(utf8.into());
                                     poller.modify(&bite.socket, Event::writable(bite.id))?;
                                 }
 
-                                // Echo
+                                // WebSocket echo
                                 // conn.to_write.push(utf8.into());
                                 // poller.modify(conn.socket.get_ref(), Event::writable(id))?
-                            } else {
-                                poller.modify(conn.socket.get_ref(), Event::readable(id))?;
                             }
-                        } else {
-                            poller.modify(conn.socket.get_ref(), Event::readable(id))?;
                         }
 
                         if conn.closed {
@@ -113,25 +117,22 @@ fn main() -> io::Result<()> {
 
                             poller.delete(conn.socket.get_ref())?;
                             connections.remove(&id).unwrap();
+                        } else {
+                            poller.modify(conn.socket.get_ref(), Event::readable(id))?;
                         }
                     }
 
                     // Bite reading
-
                     if let Some(bite) = bites.get_mut(&id) {
                         bite.read();
-
-                        poller.modify(&bite.socket, Event::readable(id))?;
 
                         if !bite.received.is_empty() {
                             let received = bite.received.remove(0);
 
                             if let Ok(utf8) = from_utf8(&received) {
-                                if !utf8.is_empty() {
-                                    println!("Bite #{}: {}", bite.id, utf8);
-                                }
+                                println!("Bite #{}: {}", bite.id, utf8);
 
-                                // From bite to the websocket
+                                // From Bite to the WebSocket
                                 if let Some(cnn) = connections.get_mut(&bite.belong_id) {
                                     cnn.to_write.push(utf8.into());
                                     poller.modify(cnn.socket.get_ref(), Event::writable(cnn.id))?;
@@ -145,22 +146,17 @@ fn main() -> io::Result<()> {
 
                             poller.delete(&bite.socket)?;
                             bites.remove(&id).unwrap();
+                        } else {
+                            poller.modify(&bite.socket, Event::readable(id))?;
                         }
                     }
                 }
 
                 id if event.writable => {
                     // WebSocket writing
-
                     if let Some(conn) = connections.get_mut(&id) {
                         println!("Writing to WebSocket #{}: {:?}", conn.id, conn.to_write);
                         conn.write();
-
-                        if !conn.to_write.is_empty() {
-                            poller.modify(conn.socket.get_ref(), Event::writable(id))?;
-                        } else {
-                            poller.modify(conn.socket.get_ref(), Event::readable(id))?;
-                        }
 
                         if conn.closed {
                             let bite = bites.remove(&conn.belong_id).unwrap();
@@ -168,33 +164,33 @@ fn main() -> io::Result<()> {
 
                             poller.delete(conn.socket.get_ref())?;
                             connections.remove(&id).unwrap();
+                        } else if !conn.to_write.is_empty() {
+                            poller.modify(conn.socket.get_ref(), Event::writable(id))?;
+                        } else {
+                            poller.modify(conn.socket.get_ref(), Event::readable(id))?;
                         }
                     }
 
                     // Bite writing
-
                     if let Some(bite) = bites.get_mut(&id) {
                         println!("Writing to Bite #{}: {:?}", bite.id, bite.to_write);
                         bite.write();
 
-                        if !bite.to_write.is_empty() {
+                        if bite.closed {
+                            let conn = connections.remove(&bite.belong_id).unwrap();
+                            poller.delete(conn.socket.get_ref())?;
+
+                            poller.delete(&bite.socket)?;
+                            bites.remove(&id).unwrap();
+                        } else if !bite.to_write.is_empty() {
                             poller.modify(&bite.socket, Event::writable(id))?;
                         } else {
                             poller.modify(&bite.socket, Event::readable(id))?;
                         }
-
-                        if bite.closed {
-                            let ws = connections.remove(&bite.belong_id).unwrap();
-                            poller.delete(ws.socket.get_ref())?;
-
-                            poller.delete(&bite.socket)?;
-                            bites.remove(&id).unwrap();
-                        }
                     }
                 }
 
-                // Events that I don't care. @doubt Does it include Event::none?
-                _ => panic!("Panic: Unknown polling event"),
+                _ => unreachable!(),
             }
         }
     }
