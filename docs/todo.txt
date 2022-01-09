@@ -1,10 +1,11 @@
 
-    Dispose correctly of connections and bites
-
-    Fails when the websocket sends nothing
     Proxy URL should be a parameters
-    Handle Bite disconnection
 
+
+    2022.01.09
+    x Dispose correctly of connections and bites
+    x Fails when the websocket sends nothing
+    x Handle Bite disconnection
 
     2022.01.08 04.37 am
     x Pretty awesome proxy with Bite
