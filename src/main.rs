@@ -15,11 +15,14 @@ use conn::Connection;
 mod bite;
 use bite::Bite;
 
+const SERVER: &str = "0.0.0.0:1983";
+const PROXY: &str = "0.0.0.0:1984";
+
 fn main() -> io::Result<()> {
     println!("\nbite Proxy\n");
 
     // The server and the smol poller
-    let server = TcpListener::bind("0.0.0.0:1983")?;
+    let server = TcpListener::bind(SERVER)?;
     server.set_nonblocking(true)?;
 
     let poller = Poller::new()?;
@@ -60,7 +63,7 @@ fn main() -> io::Result<()> {
                             id += 1;
 
                             // Bite is a requirement.
-                            let bite = Bite::new(bite_id, conn_id, "0.0.0.0:1984".into());
+                            let bite = Bite::new(bite_id, conn_id, PROXY);
                             match bite {
                                 Some(bite) => {
                                     poller.add(ws.get_ref(), Event::readable(conn_id))?;
