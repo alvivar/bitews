@@ -1,13 +1,7 @@
-use std::{
-    collections::HashMap,
-    io::{self},
-    net::TcpListener,
-    str::from_utf8,
-    sync::Arc,
-};
+use std::{collections::HashMap, io, net::TcpListener, str::from_utf8, sync::Arc};
 
 use polling::{Event, Poller};
-use tungstenite::{self};
+use tungstenite;
 
 mod conn;
 use conn::Connection;
