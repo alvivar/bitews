@@ -44,8 +44,8 @@
       function SendText() {
         const msg = text.value
         ws.send(msg)
-        text.value = ''
         WriteLine('<You>: ' + msg)
+        text.value = ''
       }
 
       function WriteLine(data) {
