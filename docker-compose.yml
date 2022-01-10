@@ -1,0 +1,10 @@
+version: '3.3'
+services:
+  bite:
+    container_name: bitews
+    build: ./
+    ports:
+      - '1983:1983'
+    volumes:
+      - ./data:/data
+    restart: on-failure
