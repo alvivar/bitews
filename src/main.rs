@@ -1,4 +1,6 @@
-use std::{collections::HashMap, io, net::TcpListener, str::from_utf8, sync::Arc};
+use std::{
+    collections::HashMap, env, io, net::TcpListener, process::exit, str::from_utf8, sync::Arc,
+};
 
 use polling::{Event, Poller};
 use tungstenite;
@@ -9,11 +11,19 @@ use conn::Connection;
 mod bite;
 use bite::Bite;
 
-const SERVER: &str = "0.0.0.0:1983";
-const PROXY: &str = "0.0.0.0:1984";
+const SERVER: &str = "0.0.0.0:1984";
 
 fn main() -> io::Result<()> {
     println!("\nbite Proxy\n");
+
+    let proxy = match env::var("PROXY") {
+        Ok(v) => v,
+        Err(_) => {
+            println!("Environmental variable PROXY is missing!");
+            println!("Use this format: 123.4.5.6:7890");
+            exit(1);
+        }
+    };
 
     // The server and the smol poller
     let server = TcpListener::bind(SERVER)?;
@@ -57,7 +67,7 @@ fn main() -> io::Result<()> {
                             id += 1;
 
                             // Bite is a requirement.
-                            let bite = Bite::new(bite_id, conn_id, PROXY);
+                            let bite = Bite::new(bite_id, conn_id, proxy.as_str());
                             match bite {
                                 Some(bite) => {
                                     poller.add(ws.get_ref(), Event::readable(conn_id))?;
