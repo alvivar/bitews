@@ -17,10 +17,10 @@
 
       const chat = document.getElementById('chat')
       const text = document.getElementById('text')
-      const status = document.getElementById('status')
+      const info = document.getElementById('status')
 
       ws.onopen = function () {
-        status.innerHTML = 'Connected!'
+        info.innerHTML = 'Connected!'
       }
 
       ws.onmessage = function (msg) {
@@ -28,11 +28,11 @@
       }
 
       ws.onclose = function () {
-        status.innerHTML = 'Disconnected!'
+        info.innerHTML = 'Disconnected!'
       }
 
       text.addEventListener('keydown', function (e) {
-        if (event.key === 'Enter') {
+        if (e.key === 'Enter') {
           SendText()
         }
       })
