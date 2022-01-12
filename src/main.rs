@@ -63,10 +63,9 @@ fn main() -> io::Result<()> {
             match event.key {
                 0 => {
                     let (socket, addr) = server.accept()?;
-                    socket.set_nonblocking(true)?;
-                    poller.modify(&server, Event::readable(0))?;
 
                     // Try as websocket, creating a Bite connection for it.
+                    socket.set_nonblocking(true)?;
                     match tungstenite::accept(socket) {
                         Ok(ws) => {
                             let conn_id = id;
@@ -102,6 +101,9 @@ fn main() -> io::Result<()> {
                             continue;
                         }
                     }
+
+                    // Continue accepting connections.
+                    poller.modify(&server, Event::readable(0))?;
                 }
 
                 id if event.readable => {
