@@ -4,7 +4,10 @@ services:
     container_name: bitews
     build: ./
     ports:
-      - '1984:1984'
+      - '1983:1983'
     volumes:
       - ./data:/data
+    environment:
+      - SERVER=0.0.0.0:1983
+      - PROXY=0.0.0.0:1984
     restart: on-failure
