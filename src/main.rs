@@ -65,7 +65,6 @@ fn main() -> io::Result<()> {
                     let (socket, addr) = server.accept()?;
 
                     // Try as websocket, creating a Bite connection for it.
-                    socket.set_nonblocking(true)?;
                     match tungstenite::accept(socket) {
                         Ok(ws) => {
                             let conn_id = id;
@@ -78,6 +77,8 @@ fn main() -> io::Result<()> {
                             let bite = Bite::new(bite_id, conn_id, proxy.as_str());
                             match bite {
                                 Some(bite) => {
+                                    ws.get_ref().set_nonblocking(true)?;
+
                                     poller.add(ws.get_ref(), Event::readable(conn_id))?;
                                     let conn = Connection::new(conn_id, bite_id, ws, addr);
                                     connections.insert(conn_id, conn);
