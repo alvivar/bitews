@@ -11,22 +11,31 @@ use conn::Connection;
 mod bite;
 use bite::Bite;
 
-const SERVER: &str = "0.0.0.0:1984";
-
 fn main() -> io::Result<()> {
-    println!("\nbite Proxy\n");
+    println!("\nBIT:E WebSocket Proxy\n");
+
+    let server = match env::var("SERVER") {
+        Ok(v) => v,
+        Err(_) => {
+            println!("Environmental variable SERVER is missing!");
+            println!("The URI that's gonna receive connections.");
+            println!("BASH i.e: export SERVER=0.0.0.0:1983");
+            exit(1);
+        }
+    };
 
     let proxy = match env::var("PROXY") {
         Ok(v) => v,
         Err(_) => {
             println!("Environmental variable PROXY is missing!");
-            println!("Use this format: 123.4.5.6:7890");
+            println!("That's the Bite server that we are gonna proxy.");
+            println!("BASH i.e: export PROXY=0.0.0.0:1984");
             exit(1);
         }
     };
 
     // The server and the smol poller
-    let server = TcpListener::bind(SERVER)?;
+    let server = TcpListener::bind(server.as_str())?;
     server.set_nonblocking(true)?;
 
     let poller = Poller::new()?;
@@ -82,7 +91,7 @@ fn main() -> io::Result<()> {
 
                                 None => {
                                     id -= 2; // Rolling back id calculation.
-                                    println!("Ignoring connection: Bite server unavailable");
+                                    println!("Ignoring, Bite server {} unavailable", proxy);
                                     continue;
                                 }
                             }
