@@ -18,7 +18,7 @@ fn main() -> io::Result<()> {
         Ok(v) => v,
         Err(_) => {
             println!("Environmental variable SERVER is missing!");
-            println!("The URI that's gonna receive connections.");
+            println!("The URI where the server is gonna receive connections.");
             println!("BASH i.e: export SERVER=0.0.0.0:1983");
             exit(1);
         }
