@@ -92,14 +92,12 @@ fn main() -> io::Result<()> {
                                 None => {
                                     id -= 2; // Rolling back id calculation.
                                     println!("Ignoring, Bite server {} unavailable", proxy);
-                                    continue;
                                 }
                             }
                         }
 
                         Err(err) => {
                             println!("WebSocket connection #{} broken: {}", id, err);
-                            continue;
                         }
                     }
 
