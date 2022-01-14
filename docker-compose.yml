@@ -1,6 +1,16 @@
 version: '3.3'
 services:
-  bite:
+
+  # bite:
+  #   container_name: bite
+  #   build: ../bite/
+  #   ports:
+  #       - '1984:1984'
+  #   volumes:
+  #       - ./chat-data:/data
+  #   restart: on-failure
+
+  bitews:
     container_name: bitews
     build: ./
     ports:
@@ -9,5 +19,5 @@ services:
       - ./data:/data
     environment:
       - SERVER=0.0.0.0:1983
-      - PROXY=0.0.0.0:1984
+      - PROXY=bite:1984
     restart: on-failure
