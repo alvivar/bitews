@@ -1,6 +1,7 @@
 version: '3.3'
 services:
 
+  # You'll need a Bite server somewhere.
   # bite:
   #   container_name: bite
   #   build: ../bite/
