@@ -1,16 +1,6 @@
 version: '3.3'
 services:
 
-  # You'll need a Bite server somewhere.
-  # bite:
-  #   container_name: bite
-  #   build: ../bite/
-  #   ports:
-  #       - '1984:1984'
-  #   volumes:
-  #       - ./chat-data:/data
-  #   restart: on-failure
-
   bitews:
     container_name: bitews
     build: ./
@@ -22,3 +12,13 @@ services:
       - SERVER=0.0.0.0:1983
       - PROXY=bite:1984
     restart: on-failure
+
+  # You'll need a Bite server somewhere.
+  # bite:
+  #   container_name: bite
+  #   build: ../bite/
+  #   ports:
+  #       - '1984:1984'
+  #   volumes:
+  #       - ./chat-data:/data
+  #   restart: on-failure
