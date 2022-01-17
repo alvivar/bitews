@@ -153,7 +153,9 @@ fn main() -> io::Result<()> {
 
                                 // From Bite to the WebSocket
                                 if let Some(cnn) = connections.get_mut(&bite.belong_id) {
-                                    cnn.to_write.push(utf8.into());
+                                    for msg in utf8.trim().split("\n") {
+                                        cnn.to_write.push(msg.into());
+                                    }
                                     poller.modify(cnn.socket.get_ref(), Event::writable(cnn.id))?;
                                 }
                             }
