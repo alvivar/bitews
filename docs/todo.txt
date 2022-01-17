@@ -1,7 +1,7 @@
 
-    Docker setup
-    Proxy URL should be a parameters
-
+    2022.01.17
+    x Docker setup
+    x Proxy URL should be a parameters
 
     2022.01.09
     x Dispose correctly of connections and bites
