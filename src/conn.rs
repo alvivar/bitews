@@ -65,6 +65,8 @@ impl Connection {
                 println!("Connection #{} closed, write failed: {}", self.id, err);
                 self.closed = true;
             }
+
+            self.socket.write_pending().unwrap();
         }
     }
 }
