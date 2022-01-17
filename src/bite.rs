@@ -58,6 +58,8 @@ impl Bite {
         if let Err(err) = self.socket.write(&data) {
             println!("Bite #{} closed, write failed: {}", self.id, err);
             self.closed = true;
+        } else {
+            self.socket.flush().unwrap();
         }
     }
 }
