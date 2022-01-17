@@ -50,7 +50,9 @@ impl Connection {
     }
 
     pub fn write(&mut self) {
-        let data = self.to_write.remove(0);
+        let mut data = self.to_write.remove(0);
+        data.push(b'\n');
+
         let data = from_utf8(&data).unwrap();
 
         // @todo Text vs binary?
