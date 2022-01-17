@@ -50,23 +50,17 @@ impl Connection {
     }
 
     pub fn write(&mut self) {
-        while self.to_write.len() > 0 {
-            let mut data = self.to_write.remove(0);
-            data.push(b'\n');
+        let data = self.to_write.remove(0);
+        let data = from_utf8(&data).unwrap();
 
-            let data = from_utf8(&data).unwrap();
+        // @todo Text vs binary?
 
-            // @todo Text vs binary?
-
-            if let Err(err) = self
-                .socket
-                .write_message(tungstenite::Message::Text(data.to_owned()))
-            {
-                println!("Connection #{} closed, write failed: {}", self.id, err);
-                self.closed = true;
-            }
-
-            self.socket.write_pending().unwrap();
+        if let Err(err) = self
+            .socket
+            .write_message(tungstenite::Message::Text(data.to_owned()))
+        {
+            println!("Connection #{} closed, write failed: {}", self.id, err);
+            self.closed = true;
         }
     }
 }
