@@ -53,7 +53,8 @@ impl Bite {
     }
 
     pub fn write(&mut self) {
-        let data = self.to_write.remove(0);
+        let mut data = self.to_write.remove(0);
+        data.push(b'\n');
 
         if let Err(err) = self.socket.write(&data) {
             println!("Bite #{} closed, write failed: {}", self.id, err);
