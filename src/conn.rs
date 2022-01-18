@@ -55,6 +55,8 @@ impl Connection {
 
         // @todo Text vs binary?
 
+        self.socket.write_pending().unwrap();
+
         if let Err(err) = self
             .socket
             .write_message(tungstenite::Message::Text(data.to_owned()))
