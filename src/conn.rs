@@ -50,6 +50,10 @@ impl Connection {
     }
 
     pub fn write(&mut self) {
+        if self.to_write.is_empty() {
+            return;
+        }
+
         let data = self.to_write.remove(0);
         let data = from_utf8(&data).unwrap();
 
