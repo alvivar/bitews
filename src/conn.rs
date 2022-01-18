@@ -51,7 +51,7 @@ impl Connection {
 
     pub fn write(&mut self) {
         if self.to_write.is_empty() {
-            return;
+            self.socket.write_pending().unwrap();
         }
 
         let data = self.to_write.remove(0);
