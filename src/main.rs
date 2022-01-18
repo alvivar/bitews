@@ -179,6 +179,8 @@ fn main() -> io::Result<()> {
                         println!("Writing to WebSocket #{}: {:?}", conn.id, conn.to_write);
                         conn.write();
 
+                        // How do we know if we really need how to write?
+
                         if conn.closed {
                             let bite = bites.remove(&conn.belong_id).unwrap();
                             poller.delete(&bite.socket)?;
