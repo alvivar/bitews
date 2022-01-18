@@ -180,6 +180,7 @@ fn main() -> io::Result<()> {
                         conn.write();
 
                         // How do we know if we really need how to write?
+                        conn.socket.write_pending().unwrap();
 
                         if conn.closed {
                             let bite = bites.remove(&conn.belong_id).unwrap();
