@@ -192,11 +192,12 @@ fn main() -> io::Result<()> {
                         }
 
                         // How do we know if we really need how to write?
-                        if !conn.to_write.is_empty() || conn.socket.can_write() {
+                        if !conn.to_write.is_empty() {
                             println!("WebSocket #{} to writable", id);
                             poller.modify(conn.socket.get_ref(), Event::writable(id))?;
                         } else {
                             println!("WebSocket #{} to readable", id);
+                            conn.socket.write_pending().unwrap();
                             poller.modify(conn.socket.get_ref(), Event::readable(id))?;
                         }
                     }
