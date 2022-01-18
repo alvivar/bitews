@@ -179,9 +179,6 @@ fn main() -> io::Result<()> {
                         println!("Writing to WebSocket #{}: {:?}", conn.id, conn.to_write);
                         conn.write();
 
-                        // How do we know if we really need how to write?
-                        conn.socket.write_pending().unwrap();
-
                         if conn.closed {
                             let bite = bites.remove(&conn.belong_id).unwrap();
                             poller.delete(&bite.socket)?;
@@ -191,6 +188,8 @@ fn main() -> io::Result<()> {
                             connections.remove(&id).unwrap();
                             println!("Dropping WebSocket #{}", id);
                         } else if !conn.to_write.is_empty() {
+                            // How do we know if we really need how to write?
+
                             println!("WebSocket #{} Writable", conn.id);
                             poller.modify(conn.socket.get_ref(), Event::writable(id))?;
                         } else {
