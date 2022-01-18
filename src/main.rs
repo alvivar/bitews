@@ -188,8 +188,10 @@ fn main() -> io::Result<()> {
                             connections.remove(&id).unwrap();
                             println!("Dropping WebSocket #{}", id);
                         } else if !conn.to_write.is_empty() {
+                            println!("WebSocket #{} Writable", conn.id);
                             poller.modify(conn.socket.get_ref(), Event::writable(id))?;
                         } else {
+                            println!("WebSocket #{} Readable", conn.id);
                             poller.modify(conn.socket.get_ref(), Event::readable(id))?;
                         }
                     }
