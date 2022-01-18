@@ -187,13 +187,16 @@ fn main() -> io::Result<()> {
                             poller.delete(conn.socket.get_ref())?;
                             connections.remove(&id).unwrap();
                             println!("Dropping WebSocket #{}", id);
-                        } else if !conn.to_write.is_empty() {
-                            // How do we know if we really need how to write?
 
-                            println!("WebSocket #{} Writable", conn.id);
+                            continue;
+                        }
+
+                        if !conn.to_write.is_empty() || conn.socket.can_write() {
+                            // How do we know if we really need how to write?
+                            println!("WebSocket #{} to writable", id);
                             poller.modify(conn.socket.get_ref(), Event::writable(id))?;
                         } else {
-                            println!("WebSocket #{} Readable", conn.id);
+                            println!("WebSocket #{} to readable", id);
                             poller.modify(conn.socket.get_ref(), Event::readable(id))?;
                         }
                     }
@@ -211,9 +214,15 @@ fn main() -> io::Result<()> {
                             poller.delete(&bite.socket)?;
                             bites.remove(&id).unwrap();
                             println!("Dropping Bite #{}", id);
-                        } else if !bite.to_write.is_empty() {
+
+                            continue;
+                        }
+
+                        if !bite.to_write.is_empty() {
+                            println!("Bite #{} to writable", id);
                             poller.modify(&bite.socket, Event::writable(id))?;
                         } else {
+                            println!("Bite #{} to writable", id);
                             poller.modify(&bite.socket, Event::readable(id))?;
                         }
                     }
