@@ -136,9 +136,11 @@ fn main() -> io::Result<()> {
                             poller.delete(conn.socket.get_ref())?;
                             connections.remove(&id).unwrap();
                             println!("Dropping WebSocket #{}", id);
-                        } else {
-                            poller.modify(conn.socket.get_ref(), Event::readable(id))?;
+
+                            continue;
                         }
+
+                        poller.modify(conn.socket.get_ref(), Event::readable(id))?;
                     }
 
                     // Bite reading
@@ -167,16 +169,18 @@ fn main() -> io::Result<()> {
                             poller.delete(&bite.socket)?;
                             bites.remove(&id).unwrap();
                             println!("Dropping Bite #{}", id);
-                        } else {
-                            poller.modify(&bite.socket, Event::readable(id))?;
+
+                            continue;
                         }
+
+                        poller.modify(&bite.socket, Event::readable(id))?;
                     }
                 }
 
                 id if event.writable => {
                     // WebSocket writing
                     if let Some(conn) = connections.get_mut(&id) {
-                        println!("Writing to WebSocket #{}: {:?}", conn.id, conn.to_write);
+                        println!("Writing WebSocket #{}: {:?}", conn.id, conn.to_write);
                         conn.write();
 
                         if conn.closed {
@@ -191,20 +195,18 @@ fn main() -> io::Result<()> {
                             continue;
                         }
 
-                        // How do we know if we really need how to write?
                         if !conn.to_write.is_empty() {
-                            println!("WebSocket #{} to writable", id);
-                            conn.socket.write_pending().unwrap();
+                            println!("WebSocket #{} writable", id);
                             poller.modify(conn.socket.get_ref(), Event::writable(id))?;
                         } else {
-                            println!("WebSocket #{} to readable", id);
+                            println!("WebSocket #{} readable", id);
                             poller.modify(conn.socket.get_ref(), Event::readable(id))?;
                         }
                     }
 
                     // Bite writing
                     if let Some(bite) = bites.get_mut(&id) {
-                        println!("Writing to Bite #{}: {:?}", bite.id, bite.to_write);
+                        println!("Writing Bite #{}: {:?}", bite.id, bite.to_write);
                         bite.write();
 
                         if bite.closed {
@@ -220,10 +222,10 @@ fn main() -> io::Result<()> {
                         }
 
                         if !bite.to_write.is_empty() {
-                            println!("Bite #{} to writable", id);
+                            println!("Bite #{} writable", id);
                             poller.modify(&bite.socket, Event::writable(id))?;
                         } else {
-                            println!("Bite #{} to writable", id);
+                            println!("Bite #{} writable", id);
                             poller.modify(&bite.socket, Event::readable(id))?;
                         }
                     }
