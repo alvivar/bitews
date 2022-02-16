@@ -3,7 +3,6 @@ use std::{
 };
 
 use polling::{Event, Poller};
-use tungstenite;
 
 mod conn;
 use conn::Connection;
