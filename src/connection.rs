@@ -1,9 +1,11 @@
-use std::{
-    net::{SocketAddr, TcpStream},
-    str::from_utf8,
-};
-
+use crossbeam_channel::{unbounded, Receiver, Sender};
+use polling::{Event, Poller};
 use tungstenite::WebSocket;
+
+use std::collections::HashMap;
+use std::net::{SocketAddr, TcpStream};
+use std::str::from_utf8;
+use std::sync::Arc;
 
 pub struct Connection {
     pub id: usize,
@@ -66,6 +68,48 @@ impl Connection {
         {
             println!("Connection #{} closed, write failed: {}", self.id, err);
             self.closed = true;
+        }
+    }
+}
+
+pub struct Connections {
+    connections: HashMap<usize, Connection>,
+    poller: Arc<Poller>,
+    pub tx: Sender<Cmd>,
+    rx: Receiver<Cmd>,
+}
+
+pub enum Cmd {
+    New(usize, WebSocket<TcpStream>, SocketAddr),
+    Read(usize),
+    Write(usize, String),
+}
+
+impl Connections {
+    pub fn new(poller: Arc<Poller>) -> Self {
+        let all = HashMap::<usize, Connection>::new();
+        let (tx, rx) = unbounded::<Cmd>();
+
+        Connections {
+            connections: all,
+            poller,
+            tx,
+            rx,
+        }
+    }
+
+    pub fn handle(&mut self) {
+        match self.rx.recv().unwrap() {
+            Cmd::New(id, ws, addr) => {
+                self.poller.add(ws.get_ref(), Event::readable(id)).unwrap();
+                let conn = Connection::new(id, id, ws, addr);
+                self.connections.insert(id, conn);
+                println!("WebSocket #{} from {} ready to poll", id, addr);
+            }
+
+            Cmd::Read(id) => {}
+
+            Cmd::Write(id, data) => {}
         }
     }
 }
