@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 polling = "2.2.0"
 tungstenite = "0.16.0"
+crossbeam-channel = "0.5.2"
