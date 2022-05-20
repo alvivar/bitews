@@ -81,8 +81,6 @@ pub struct Connections {
 
 pub enum Cmd {
     New(usize, WebSocket<TcpStream>, SocketAddr),
-    Read(usize),
-    Write(usize, String),
 }
 
 impl Connections {
@@ -106,10 +104,6 @@ impl Connections {
                 self.connections.insert(id, conn);
                 println!("WebSocket #{} from {} ready to poll", id, addr);
             }
-
-            Cmd::Read(id) => {}
-
-            Cmd::Write(id, data) => {}
         }
     }
 }
