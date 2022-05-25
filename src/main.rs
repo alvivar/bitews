@@ -30,7 +30,7 @@ fn main() -> io::Result<()> {
         Err(_) => {
             println!("Environmental variable PROXY is missing!");
             println!("That's the Bite server that we are gonna proxy.");
-            println!("BASH i.e: export PROXY=0.0.0.0:1984"); // Powershell i.e.: $env:SERVER = "0.0.0.0:1984"
+            println!("BASH i.e: export PROXY=0.0.0.0:1984"); // Powershell i.e.: $env:PROXY = "0.0.0.0:1984"
             exit(1);
         }
     };
