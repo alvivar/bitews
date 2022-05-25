@@ -12,13 +12,6 @@ use std::sync::Arc;
 use std::thread;
 use std::{env, io, process::exit, str::from_utf8};
 
-fn to_utf8(str: &[u8]) -> &str {
-    match from_utf8(str) {
-        Ok(str) => str,
-        Err(_) => "#InvalidUTF8",
-    }
-}
-
 fn main() -> io::Result<()> {
     println!("\nBIT:E WebSocket Proxy\n");
 
@@ -188,9 +181,7 @@ fn main() -> io::Result<()> {
                 id if event.writable => {
                     // WebSocket writing
                     if let Some(conn) = connections.get_mut(&id) {
-                        let utf8 = to_utf8(&conn.to_write[0]);
-                        println!("Writing WebSocket #{}: {}", conn.id, utf8);
-
+                        println!("Writing WebSocket #{}: {:?}", conn.id, conn.to_write);
                         conn.try_write();
 
                         if conn.closed {
@@ -217,7 +208,6 @@ fn main() -> io::Result<()> {
                     // Bite writing
                     if let Some(bite) = bites.get_mut(&id) {
                         println!("Writing Bite #{}: {:?}", bite.id, bite.to_write);
-
                         bite.try_write();
 
                         if bite.closed {
@@ -237,7 +227,7 @@ fn main() -> io::Result<()> {
                             println!("Bite #{} writable", id);
                         } else {
                             poller.modify(&bite.socket, Event::readable(id))?;
-                            println!("Bite #{} readable", id);
+                            println!("Bite #{} writable", id);
                         }
                     }
                 }
