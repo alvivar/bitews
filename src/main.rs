@@ -1,8 +1,8 @@
-mod bite;
-mod connection;
+mod bitecon;
+mod tungscon;
 
-use crate::bite::Bite;
-use crate::connection::{Connection, Connections};
+use crate::bitecon::Bite;
+use crate::tungscon::{Connection, Connections};
 
 use polling::{Event, Poller};
 
@@ -86,7 +86,7 @@ fn main() -> io::Result<()> {
                                     ws.get_ref().set_nonblocking(true)?;
 
                                     writer_tx
-                                        .send(connection::Cmd::New(conn_id, ws, addr))
+                                        .send(tungscon::Cmd::New(conn_id, ws, addr))
                                         .unwrap();
 
                                     poller.add(&bite.socket, Event::readable(bite_id))?;
@@ -113,7 +113,7 @@ fn main() -> io::Result<()> {
                 id if event.readable => {
                     // WebSocket reading
                     if let Some(conn) = connections.get_mut(&id) {
-                        conn.read();
+                        conn.try_read();
 
                         if !conn.received.is_empty() {
                             let received = conn.received.remove(0);
@@ -146,7 +146,7 @@ fn main() -> io::Result<()> {
 
                     // Bite reading
                     if let Some(bite) = bites.get_mut(&id) {
-                        bite.read();
+                        bite.try_read();
 
                         if !bite.received.is_empty() {
                             let received = bite.received.remove(0);
@@ -182,7 +182,7 @@ fn main() -> io::Result<()> {
                     // WebSocket writing
                     if let Some(conn) = connections.get_mut(&id) {
                         println!("Writing WebSocket #{}: {:?}", conn.id, conn.to_write);
-                        conn.write();
+                        conn.try_write();
 
                         if conn.closed {
                             let bite = bites.remove(&conn.belong_id).unwrap();
@@ -197,18 +197,18 @@ fn main() -> io::Result<()> {
                         }
 
                         if !conn.to_write.is_empty() {
-                            println!("WebSocket #{} writable", id);
                             poller.modify(conn.socket.get_ref(), Event::writable(id))?;
+                            println!("WebSocket #{} writable", id);
                         } else {
-                            println!("WebSocket #{} readable", id);
                             poller.modify(conn.socket.get_ref(), Event::readable(id))?;
+                            println!("WebSocket #{} readable", id);
                         }
                     }
 
                     // Bite writing
                     if let Some(bite) = bites.get_mut(&id) {
                         println!("Writing Bite #{}: {:?}", bite.id, bite.to_write);
-                        bite.write();
+                        bite.try_write();
 
                         if bite.closed {
                             let conn = connections.remove(&bite.belong_id).unwrap();
@@ -223,11 +223,11 @@ fn main() -> io::Result<()> {
                         }
 
                         if !bite.to_write.is_empty() {
-                            println!("Bite #{} writable", id);
                             poller.modify(&bite.socket, Event::writable(id))?;
-                        } else {
                             println!("Bite #{} writable", id);
+                        } else {
                             poller.modify(&bite.socket, Event::readable(id))?;
+                            println!("Bite #{} writable", id);
                         }
                     }
                 }
