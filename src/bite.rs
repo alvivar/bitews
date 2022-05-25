@@ -63,7 +63,7 @@ impl Bite {
 }
 
 fn read_stream(socket: &mut TcpStream) -> io::Result<Vec<u8>> {
-    let mut received = vec![0; 1024 * 4];
+    let mut received = vec![0; 4096];
     let mut bytes_read = 0;
 
     loop {
