@@ -1,16 +1,15 @@
-mod bite;
-mod connection;
-
-use crate::bite::Bite;
-use crate::connection::{Connection, Connections};
+use std::{
+    collections::HashMap, env, io, net::TcpListener, process::exit, str::from_utf8, sync::Arc,
+};
 
 use polling::{Event, Poller};
+use tungstenite;
 
-use std::collections::HashMap;
-use std::net::TcpListener;
-use std::sync::Arc;
-use std::thread;
-use std::{env, io, process::exit, str::from_utf8};
+mod conn;
+use conn::Connection;
+
+mod bite;
+use bite::Bite;
 
 fn main() -> io::Result<()> {
     println!("\nBIT:E WebSocket Proxy\n");
@@ -20,7 +19,7 @@ fn main() -> io::Result<()> {
         Err(_) => {
             println!("Environmental variable SERVER is missing!");
             println!("The URI where the server is gonna receive connections.");
-            println!("BASH i.e: export SERVER=0.0.0.0:1983"); // Powershell i.e.: $env:SERVER = "0.0.0.0:1983"
+            println!("BASH i.e: export SERVER=0.0.0.0:1983");
             exit(1);
         }
     };
@@ -30,7 +29,7 @@ fn main() -> io::Result<()> {
         Err(_) => {
             println!("Environmental variable PROXY is missing!");
             println!("That's the Bite server that we are gonna proxy.");
-            println!("BASH i.e: export PROXY=0.0.0.0:1984"); // Powershell i.e.: $env:PROXY = "0.0.0.0:1984"
+            println!("BASH i.e: export PROXY=0.0.0.0:1984");
             exit(1);
         }
     };
@@ -46,11 +45,6 @@ fn main() -> io::Result<()> {
     // Connections
     let mut connections = HashMap::<usize, Connection>::new();
     let mut bites = HashMap::<usize, Bite>::new();
-
-    // The writer
-    let mut writer = Connections::new(poller.clone());
-    let writer_tx = writer.tx.clone();
-    thread::spawn(move || writer.handle());
 
     // Connections and events via smol Poller.
     let mut id: usize = 1;
@@ -85,9 +79,10 @@ fn main() -> io::Result<()> {
                                 Some(bite) => {
                                     ws.get_ref().set_nonblocking(true)?;
 
-                                    writer_tx
-                                        .send(connection::Cmd::New(conn_id, ws, addr))
-                                        .unwrap();
+                                    poller.add(ws.get_ref(), Event::readable(conn_id))?;
+                                    let conn = Connection::new(conn_id, bite_id, ws, addr);
+                                    connections.insert(conn_id, conn);
+                                    println!("WebSocket #{} from {} ready to poll", conn_id, addr);
 
                                     poller.add(&bite.socket, Event::readable(bite_id))?;
                                     bites.insert(bite_id, bite);
@@ -126,6 +121,10 @@ fn main() -> io::Result<()> {
                                     bite.to_write.push(utf8.into());
                                     poller.modify(&bite.socket, Event::writable(bite.id))?;
                                 }
+
+                                // WebSocket echo
+                                // conn.to_write.push(utf8.into());
+                                // poller.modify(conn.socket.get_ref(), Event::writable(id))?
                             }
                         }
 
