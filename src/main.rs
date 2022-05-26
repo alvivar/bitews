@@ -1,6 +1,10 @@
-use std::{
-    collections::HashMap, env, io, net::TcpListener, process::exit, str::from_utf8, sync::Arc,
-};
+use std::collections::HashMap;
+use std::env;
+use std::io;
+use std::net::TcpListener;
+use std::process::exit;
+use std::str::from_utf8;
+use std::sync::Arc;
 
 use polling::{Event, Poller};
 use tungstenite;
