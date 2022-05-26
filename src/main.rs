@@ -145,7 +145,7 @@ fn main() -> io::Result<()> {
 
                     // Bite reading
                     if let Some(bite) = bites.get_mut(&id) {
-                        bite.read();
+                        bite.try_read();
 
                         if !bite.received.is_empty() {
                             let received = bite.received.remove(0);
@@ -207,7 +207,7 @@ fn main() -> io::Result<()> {
                     // Bite writing
                     if let Some(bite) = bites.get_mut(&id) {
                         println!("Writing Bite #{}: {:?}", bite.id, bite.to_write);
-                        bite.write();
+                        bite.try_write();
 
                         if bite.closed {
                             let conn = connections.remove(&bite.belong_id).unwrap();
