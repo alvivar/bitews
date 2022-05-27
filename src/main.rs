@@ -112,7 +112,7 @@ fn main() -> io::Result<()> {
                 id if event.readable => {
                     // WebSocket reading
                     if let Some(conn) = connections.get_mut(&id) {
-                        conn.read();
+                        conn.try_read();
 
                         if !conn.received.is_empty() {
                             let received = conn.received.remove(0);
@@ -185,7 +185,7 @@ fn main() -> io::Result<()> {
                     // WebSocket writing
                     if let Some(conn) = connections.get_mut(&id) {
                         println!("Writing WebSocket #{}: {:?}", conn.id, conn.to_write);
-                        conn.write();
+                        conn.try_write();
 
                         if conn.closed {
                             let bite = bites.remove(&conn.belong_id).unwrap();

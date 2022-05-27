@@ -36,7 +36,7 @@ impl Connection {
         }
     }
 
-    pub fn read(&mut self) {
+    pub fn try_read(&mut self) {
         let data = match self.socket.read_message() {
             Ok(msg) => msg.into_data(),
             Err(err) => {
@@ -49,7 +49,7 @@ impl Connection {
         self.received.push(data);
     }
 
-    pub fn write(&mut self) {
+    pub fn try_write(&mut self) {
         if self.to_write.is_empty() {
             self.socket.write_pending().unwrap();
             return;
