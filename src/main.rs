@@ -1,3 +1,12 @@
+mod bite;
+mod conn;
+
+use bite::Bite;
+use conn::Connection;
+
+use polling::{Event, Poller};
+use tungstenite;
+
 use std::collections::HashMap;
 use std::env;
 use std::io;
@@ -5,15 +14,6 @@ use std::net::TcpListener;
 use std::process::exit;
 use std::str::from_utf8;
 use std::sync::Arc;
-
-use polling::{Event, Poller};
-use tungstenite;
-
-mod conn;
-use conn::Connection;
-
-mod bite;
-use bite::Bite;
 
 fn main() -> io::Result<()> {
     println!("\nBIT:E WebSocket Proxy\n");
@@ -122,6 +122,8 @@ fn main() -> io::Result<()> {
 
                                 // From WebSocket to Bite
                                 if let Some(bite) = bites.get_mut(&conn.belong_id) {
+                                    // @todo Consider bite protocol.
+
                                     bite.to_write.push(utf8.into());
                                     poller.modify(&bite.socket, Event::writable(bite.id))?;
                                 }
