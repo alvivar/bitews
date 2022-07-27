@@ -1,9 +1,7 @@
-use std::{
-    net::{SocketAddr, TcpStream},
-    str::from_utf8,
-};
-
 use tungstenite::WebSocket;
+
+use std::net::{SocketAddr, TcpStream};
+use std::str::from_utf8;
 
 pub struct Connection {
     pub id: usize,
