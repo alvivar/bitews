@@ -122,9 +122,18 @@ fn main() -> io::Result<()> {
 
                                 // From WebSocket to Bite
                                 if let Some(bite) = bites.get_mut(&conn.belong_id) {
-                                    // @todo Consider bite protocol.
+                                    // The first 2 bytes represent the message size.
+                                    // let size = (self.buffer[0] as u32) << 8 | (self.buffer[1] as u32); // BigEndian
+                                    // let buffer_len = self.buffer.len() as u32;
 
-                                    bite.to_write.push(utf8.into());
+                                    // The message fullfiling the protocol.
+                                    let len = (received.len() + 2) as u32;
+                                    let mut message = Vec::with_capacity(len as usize);
+                                    message[0] = ((len & 0xFF00) >> 8) as u8;
+                                    message[1] = (len & 0x00FF) as u8;
+                                    message.extend(&received);
+
+                                    bite.to_write.push(message);
                                     poller.modify(&bite.socket, Event::writable(bite.id))?;
                                 }
 
