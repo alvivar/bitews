@@ -5,7 +5,6 @@ use bite::Bite;
 use conn::Connection;
 
 use polling::{Event, Poller};
-use tungstenite;
 
 use std::collections::HashMap;
 use std::env;
@@ -124,8 +123,8 @@ fn main() -> io::Result<()> {
                                 if let Some(bite) = bites.get_mut(&conn.belong_id) {
                                     // The first 2 bytes should represent the
                                     // message size according to our protocol.
-                                    let len = (received.len() + 2) as u32;
-                                    let mut message: Vec<u8> = Vec::with_capacity(len as usize);
+                                    let len = received.len() + 2;
+                                    let mut message: Vec<u8> = Vec::with_capacity(len);
                                     message.push(((len & 0xFF00) >> 8) as u8);
                                     message.push((len & 0x00FF) as u8);
                                     message.extend(&received);
