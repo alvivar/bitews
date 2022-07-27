@@ -128,9 +128,9 @@ fn main() -> io::Result<()> {
 
                                     // The message fullfiling the protocol.
                                     let len = (received.len() + 2) as u32;
-                                    let mut message = Vec::with_capacity(len as usize);
-                                    message[0] = ((len & 0xFF00) >> 8) as u8;
-                                    message[1] = (len & 0x00FF) as u8;
+                                    let mut message: Vec<u8> = Vec::with_capacity(len as usize);
+                                    message.push(((len & 0xFF00) >> 8) as u8);
+                                    message.push((len & 0x00FF) as u8);
                                     message.extend(&received);
 
                                     bite.to_write.push(message);
