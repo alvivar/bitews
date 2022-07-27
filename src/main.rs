@@ -114,24 +114,23 @@ fn main() -> io::Result<()> {
                         conn.try_read();
 
                         if !conn.received.is_empty() {
-                            let received = conn.received.remove(0);
+                            let mut received = conn.received.remove(0);
 
-                            if let Ok(utf8) = from_utf8(&received) {
-                                println!("WebSocket #{} from {}: {}", conn.id, conn.addr, utf8);
+                            let utf8 = String::from_utf8_lossy(&received);
+                            println!("WebSocket #{} from {}: {}", conn.id, conn.addr, utf8);
 
-                                // From WebSocket to Bite
-                                if let Some(bite) = bites.get_mut(&conn.belong_id) {
-                                    // The first 2 bytes should represent the
-                                    // message size according to our protocol.
-                                    let len = received.len() + 2;
-                                    let mut message: Vec<u8> = Vec::with_capacity(len);
-                                    message.push(((len & 0xFF00) >> 8) as u8);
-                                    message.push((len & 0x00FF) as u8);
-                                    message.extend(&received);
+                            // From WebSocket to Bite
+                            if let Some(bite) = bites.get_mut(&conn.belong_id) {
+                                // The first 2 bytes should represent the
+                                // message size according to our protocol.
+                                let len = received.len() + 2;
+                                let mut message: Vec<u8> = Vec::with_capacity(len);
+                                message.push(((len & 0xFF00) >> 8) as u8);
+                                message.push((len & 0x00FF) as u8);
+                                message.append(&mut received);
 
-                                    bite.to_write.push(message);
-                                    poller.modify(&bite.socket, Event::writable(bite.id))?;
-                                }
+                                bite.to_write.push(message);
+                                poller.modify(&bite.socket, Event::writable(bite.id))?;
 
                                 // WebSocket echo
                                 // conn.to_write.push(utf8.into());

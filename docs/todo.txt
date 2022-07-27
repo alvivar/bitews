@@ -1,4 +1,6 @@
 
+    Remove all utf8 stuff from the code, and replace it with utf8_lossy.
+
     2022.01.17
     x Docker setup
     x Proxy URL should be a parameters
