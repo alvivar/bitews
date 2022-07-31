@@ -121,8 +121,8 @@ fn main() -> io::Result<()> {
 
                             // From WebSocket to Bite
                             if let Some(bite) = bites.get_mut(&conn.belong_id) {
-                                // The first 2 bytes should represent the
-                                // message size according to our protocol.
+                                // The first 2 bytes represent the message size
+                                // according to our protocol.
                                 let len = received.len() + 2;
                                 let mut message: Vec<u8> = Vec::with_capacity(len);
                                 message.push(((len & 0xFF00) >> 8) as u8);
