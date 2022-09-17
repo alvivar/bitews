@@ -6,5 +6,5 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-polling = "2.2.0"
+polling = "2.3.0"
 tungstenite = "0.16.0"
