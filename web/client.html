@@ -1,58 +1,61 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <title>WebSocket Client</title>
-    <meta charset="utf-8" />
-  </head>
-  <body>
-    <h1>WebSocket Client</h1>
-    <p><em id="status">Connecting...</em></p>
-    <input id="text" type="text" autofocus />
-    <button id="send" type="button">Send</button>
-    <div id="chat"></div>
 
-    <script type="text/javascript">
-      const uri = 'ws://127.0.0.1:1983/'
-      const ws = new WebSocket(uri)
+<head>
+  <title>WebSocket Client</title>
+  <meta charset="utf-8" />
+</head>
 
-      const chat = document.getElementById('chat')
-      const text = document.getElementById('text')
-      const info = document.getElementById('status')
+<body>
+  <h1>WebSocket Client</h1>
+  <p><em id="status">Connecting...</em></p>
+  <input id="text" type="text" autofocus />
+  <button id="send" type="button">Send</button>
+  <div id="chat"></div>
 
-      ws.onopen = function () {
-        info.innerHTML = 'Connected!'
-      }
+  <script type="text/javascript">
+    const uri = 'ws://127.0.0.1:3000/ws'
+    const ws = new WebSocket(uri)
 
-      ws.onmessage = function (msg) {
-        WriteLine(msg.data)
-      }
+    const chat = document.getElementById('chat')
+    const text = document.getElementById('text')
+    const info = document.getElementById('status')
 
-      ws.onclose = function () {
-        info.innerHTML = 'Disconnected!'
-      }
+    ws.onopen = function () {
+      info.innerHTML = 'Connected!'
+    }
 
-      text.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') {
-          SendText()
-        }
-      })
+    ws.onmessage = function (msg) {
+      WriteLine(msg.data)
+    }
 
-      send.onclick = function () {
+    ws.onclose = function () {
+      info.innerHTML = 'Disconnected!'
+    }
+
+    text.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
         SendText()
       }
+    })
 
-      function SendText() {
-        const msg = text.value
-        ws.send(msg)
-        WriteLine('<You>: ' + msg)
-        text.value = ''
-      }
+    send.onclick = function () {
+      SendText()
+    }
 
-      function WriteLine(data) {
-        const line = document.createElement('p')
-        line.innerText = data
-        chat.insertBefore(line, chat.firstChild)
-      }
-    </script>
-  </body>
+    function SendText() {
+      const msg = text.value
+      ws.send(msg)
+      WriteLine('<You>: ' + msg)
+      text.value = ''
+    }
+
+    function WriteLine(data) {
+      const line = document.createElement('p')
+      line.innerText = data
+      chat.insertBefore(line, chat.firstChild)
+    }
+  </script>
+</body>
+
 </html>
