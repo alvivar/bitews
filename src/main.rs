@@ -1,16 +1,25 @@
-use axum::extract::ws::WebSocketUpgrade;
-use axum::extract::ws::{Message, WebSocket};
+mod bite_client;
+use bite_client::bitec::Bitec;
+
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::Response;
 use axum::routing::get;
 use axum::Router;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
+
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
+
+struct State {
+    count: usize,
+}
 
 #[tokio::main]
 async fn main() {
-    let app: Router = Router::new().route("/ws", get(handler));
+    let shared = Arc::new(Mutex::new(State { count: 0 }));
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let app: Router = Router::new().route("/ws", get(move |ws| handler(ws, Arc::clone(&shared))));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
 
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
@@ -18,28 +27,38 @@ async fn main() {
         .unwrap();
 }
 
-async fn handler(ws: WebSocketUpgrade) -> Response {
+async fn handler(ws: WebSocketUpgrade, state: Arc<Mutex<State>>) -> Response {
     println!("New connection: {:?}", ws);
-    ws.on_upgrade(handle_socket)
+
+    ws.on_upgrade(|ws| handle_socket(ws, state))
 }
 
-async fn handle_socket(socket: WebSocket) {
+async fn handle_socket(socket: WebSocket, state: Arc<Mutex<State>>) {
     let (sender, receiver) = socket.split();
 
-    tokio::spawn(write(sender));
-    tokio::spawn(read(receiver));
+    let mut state = state.lock().unwrap();
+    state.count += 1;
+
+    let server = SocketAddr::from(([127, 0, 0, 1], 1984));
+    let bite_write = Bitec::new(state.count, server);
+    let bite_read = Bitec::new(state.count, server);
+
+    drop(state);
+
+    tokio::spawn(write(sender, bite_write));
+    tokio::spawn(read(receiver, bite_read));
 }
 
-async fn read(mut receiver: SplitStream<WebSocket>) {
+async fn read(mut receiver: SplitStream<WebSocket>, bite_read: Bitec) {
     loop {
         match receiver.next().await {
             Some(Ok(msg)) => match msg {
-                Message::Text(t) => {
-                    println!("Text: {}", t);
+                Message::Text(text) => {
+                    println!("Text: {}", text);
                 }
 
                 Message::Binary(_) => {
-                    println!("Binary data");
+                    println!("Binary received");
                 }
 
                 Message::Ping(_) => {
@@ -52,6 +71,9 @@ async fn read(mut receiver: SplitStream<WebSocket>) {
 
                 Message::Close(_) => {
                     println!("Client disconnected");
+
+                    // Handling client disconnection, including BITE.
+
                     return;
                 }
             },
@@ -69,6 +91,6 @@ async fn read(mut receiver: SplitStream<WebSocket>) {
     }
 }
 
-async fn write(sender: SplitSink<WebSocket, Message>) {
+async fn write(sender: SplitSink<WebSocket, Message>, bite_write: Bitec) {
     loop {}
 }
