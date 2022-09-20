@@ -1,10 +1,4 @@
 
-
-
-    WS Read
-        WebSocket receives and sents to bite
-
-
-    WS Write
-
-
+Ok, I got a long way to go, but I'm trying to use Tokio Axum to deal with
+WebSockets that connects to BITE. Lots of questions, specially if Tokio TCP
+streams are an options instead of polling (what I'm currently trying).
