@@ -1,18 +1,18 @@
-mod bite_client;
-use bite_client::bite_reader::BiteReader;
-
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::Response;
 use axum::routing::get;
 use axum::Router;
-use bite_client::connection::Connection;
-use bite_client::message::Messages;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
 use tokio::net::TcpStream;
+use tokio::sync::mpsc;
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::thread;
+
+enum Command {
+    Write,
+}
 
 struct State {
     count: usize,
@@ -39,37 +39,33 @@ async fn handler(ws: WebSocketUpgrade, state: Arc<Mutex<State>>) -> Response {
 }
 
 async fn handle_socket(socket: WebSocket, state: Arc<Mutex<State>>) {
-    let (sender, receiver) = socket.split();
-
     let mut state = state.lock().unwrap();
     state.count += 1;
-
-    let server_addr = SocketAddr::from(([127, 0, 0, 1], 1984));
-
-    // if let Ok(mut t) = TcpStream::connect(server_addr).await {
-    //     let (tcp_sender, tcp_receiver) = t.split();
-    // }
-
-    // let reader = TcpStream::connect(server_addr).unwrap();
-    // reader.set_nonblocking(true).unwrap();
-    // let writer = reader.try_clone().unwrap();
-
-    // let read_conn = Connection::new(state.count, reader, server_addr);
-    // let write_conn = Connection::new(state.count, writer, server_addr);
-    // let messages = Messages::new();
-
-    // let bite_write = Bitec::new(state.count, server);
-    // let bite_read = Bitec::new(state.count, server);
-
-    // @todo
-
     drop(state);
 
-    // tokio::spawn(ws_write(sender, read_conn));
-    // tokio::spawn(ws_read(receiver, write_conn));
+    let bite_addr = SocketAddr::from(([127, 0, 0, 1], 1984));
+    tokio::spawn(handle_bite(bite_addr));
+
+    let (bite_sender, bite_receiver) = mpsc::unbounded_channel::<Command>();
+
+    let (ws_sender, ws_receiver) = socket.split();
+    tokio::spawn(ws_writer(ws_sender));
+    tokio::spawn(ws_reader(ws_receiver));
 }
 
-async fn ws_read(mut receiver: SplitStream<WebSocket>, conn: Connection) {
+async fn handle_bite(addr: SocketAddr) {
+    match TcpStream::connect(addr).await {
+        Ok(mut tcp) => {
+            let (tcp_sender, tcp_receiver) = tcp.split();
+        }
+
+        Err(e) => {
+            println!("Error: {:?}", e);
+        }
+    }
+}
+
+async fn ws_reader(mut receiver: SplitStream<WebSocket>) {
     loop {
         match receiver.next().await {
             Some(Ok(msg)) => match msg {
@@ -111,6 +107,6 @@ async fn ws_read(mut receiver: SplitStream<WebSocket>, conn: Connection) {
     }
 }
 
-async fn ws_write(sender: SplitSink<WebSocket, Message>, conn: Connection) {
+async fn ws_writer(sender: SplitSink<WebSocket, Message>) {
     loop {}
 }
