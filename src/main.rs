@@ -2,8 +2,9 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::Response;
 use axum::routing::get;
 use axum::Router;
-use futures::io::WriteHalf;
+
 use futures::stream::{SplitSink, SplitStream, StreamExt};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{self, UnboundedSender};
 
@@ -48,19 +49,17 @@ async fn init_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
     let (ws_sender, ws_receiver) = mpsc::unbounded_channel::<Command>();
 
     let bite_addr = SocketAddr::from(([127, 0, 0, 1], 1984));
+
     tokio::spawn(handle_bite(bite_addr, ws_sender));
     tokio::spawn(handle_websocket(socket));
-
-    // tokio::spawn(ws_writer(ws_sender));
-    // tokio::spawn(ws_reader(ws_receiver));
 }
 
 async fn handle_bite(addr: SocketAddr, ws_sender: UnboundedSender<Command>) {
     match TcpStream::connect(addr).await {
-        Ok(mut tcp) => {
-            let (tcp_sender, tcp_receiver) = tcp.split();
-            // tokio::spawn(bite_reader(tcp_receiver));
-            // tokio::spawn(bite_writer(tcp_sender));
+        Ok(tcp) => {
+            let (tcp_sender, tcp_receiver) = tcp.into_split();
+            tokio::spawn(bite_writer(tcp_sender));
+            tokio::spawn(bite_reader(tcp_receiver));
         }
 
         Err(e) => {
@@ -71,11 +70,13 @@ async fn handle_bite(addr: SocketAddr, ws_sender: UnboundedSender<Command>) {
 
 async fn handle_websocket(socket: WebSocket) {
     let (ws_sender, ws_receiver) = socket.split();
+    tokio::spawn(ws_writer(ws_sender));
+    tokio::spawn(ws_reader(ws_receiver));
 }
 
-async fn bite_reader(bite_receiver: WriteHalf<TcpStream>) {}
+async fn bite_reader(tcp_receiver: OwnedWriteHalf) {}
 
-async fn bite_writer(mut sender: UnboundedSender<Command>) {}
+async fn bite_writer(tcp_sender: OwnedReadHalf) {}
 
 async fn ws_reader(mut receiver: SplitStream<WebSocket>) {
     loop {
