@@ -35,26 +35,26 @@ impl Bite {
         }
     }
 
-    pub fn handle(&mut self) {
-        // Connections and events via smol Poller.
-        let mut id_count: usize = 1; // 0 belongs to the main TcpListener.
-        let mut events = Vec::new();
+    // pub fn handle(&mut self) {
+    //     // Connections and events via smol Poller.
+    //     let mut id_count: usize = 1; // 0 belongs to the main TcpListener.
+    //     let mut events = Vec::new();
 
-        loop {
-            events.clear();
-            self.poller.wait(&mut events, None)?;
+    //     loop {
+    //         events.clear();
+    //         self.poller.wait(&mut events, None)?;
 
-            for ev in &events {
-                match ev.key {
-                    0 => {}
+    //         for ev in &events {
+    //             match ev.key {
+    //                 0 => {}
 
-                    id if ev.readable => {}
+    //                 id if ev.readable => {}
 
-                    id if ev.writable => {}
+    //                 id if ev.writable => {}
 
-                    _ => unreachable!(),
-                }
-            }
-        }
-    }
+    //                 _ => unreachable!(),
+    //             }
+    //         }
+    //     }
+    // }
 }
