@@ -12,8 +12,10 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+#[derive(Debug)]
 enum Command {
-    Write,
+    WriteText(String),
+    WriteBinary(Vec<u8>),
 }
 
 struct State {
@@ -51,13 +53,14 @@ async fn init_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
     let bite_addr = SocketAddr::from(([127, 0, 0, 1], 1984));
 
     tokio::spawn(handle_bite(bite_addr, ws_sender));
-    tokio::spawn(handle_websocket(socket));
+    tokio::spawn(handle_websocket(socket, bite_sender));
 }
 
 async fn handle_bite(addr: SocketAddr, ws_sender: UnboundedSender<Command>) {
     match TcpStream::connect(addr).await {
         Ok(tcp) => {
             let (tcp_sender, tcp_receiver) = tcp.into_split();
+
             tokio::spawn(bite_writer(tcp_sender));
             tokio::spawn(bite_reader(tcp_receiver));
         }
@@ -68,37 +71,44 @@ async fn handle_bite(addr: SocketAddr, ws_sender: UnboundedSender<Command>) {
     }
 }
 
-async fn handle_websocket(socket: WebSocket) {
+async fn handle_websocket(socket: WebSocket, bite_sender: UnboundedSender<Command>) {
     let (ws_sender, ws_receiver) = socket.split();
+
     tokio::spawn(ws_writer(ws_sender));
-    tokio::spawn(ws_reader(ws_receiver));
+    tokio::spawn(ws_reader(ws_receiver, bite_sender));
 }
 
 async fn bite_reader(tcp_receiver: OwnedWriteHalf) {}
 
 async fn bite_writer(tcp_sender: OwnedReadHalf) {}
 
-async fn ws_reader(mut receiver: SplitStream<WebSocket>) {
+async fn ws_reader(mut receiver: SplitStream<WebSocket>, bite_sender: UnboundedSender<Command>) {
     loop {
         match receiver.next().await {
             Some(Ok(msg)) => match msg {
                 Message::Text(text) => {
                     println!("Text: {}", text);
+                    bite_sender.send(Command::WriteText(text)).unwrap();
                 }
 
-                Message::Binary(_) => {
+                Message::Binary(binary) => {
                     println!("Binary received");
+                    bite_sender.send(Command::WriteBinary(binary)).unwrap();
                 }
 
-                Message::Ping(_) => {
+                Message::Ping(binary) => {
                     println!("Ping");
+                    bite_sender.send(Command::WriteBinary(binary)).unwrap();
                 }
 
-                Message::Pong(_) => {
+                Message::Pong(binary) => {
                     println!("Pong");
+                    bite_sender.send(Command::WriteBinary(binary)).unwrap();
                 }
 
-                Message::Close(_) => {
+                Message::Close(frame) => {
+                    // CloseFrame?
+
                     println!("Client disconnected");
 
                     // Handling client disconnection, including BITE.
@@ -121,5 +131,7 @@ async fn ws_reader(mut receiver: SplitStream<WebSocket>) {
 }
 
 async fn ws_writer(sender: SplitSink<WebSocket, Message>) {
-    loop {}
+    loop {
+        // Wait for a message from the BITE server.
+    }
 }
