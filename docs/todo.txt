@@ -1,9 +1,11 @@
 
+    Consider going full Tokio, instead of Futures (but I'm not sure).
     IPs should be environment variables.
     The JavaScript client library.
 
 
     10/1/2022
+    x The html runs on the home.
     x Basically, a simple proxy prototype to a tcp server, using Tokio Axum.
     ? Remove all utf8 stuff from the code, and replace it with utf8_lossy.
 
