@@ -1,5 +1,7 @@
 
-    Remove all utf8 stuff from the code, and replace it with utf8_lossy.
+    10/1/2022
+    x Basically, a simple proxy prototype to a tcp server, using Tokio Axum.
+    ? Remove all utf8 stuff from the code, and replace it with utf8_lossy.
 
     2022.01.17
     x Docker setup
