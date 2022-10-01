@@ -4,12 +4,11 @@ use axum::routing::get;
 use axum::Router;
 
 use futures::sink::SinkExt;
-use futures::stream::{SplitSink, SplitStream, StreamExt};
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use futures::stream::StreamExt;
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{self};
 
-use std::io;
+use std::io::{self};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
@@ -42,165 +41,136 @@ async fn handler(ws: WebSocketUpgrade, state: Arc<Mutex<State>>) -> Response {
 }
 
 async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
-    let mut state = state.lock().unwrap();
-    state.count += 1;
-    drop(state);
+    let (mut ws_write, mut ws_read) = socket.split();
+    let (ws_tx, mut ws_rx) = mpsc::unbounded_channel::<Command>();
+    let (bite_tx, mut bite_rx) = mpsc::unbounded_channel::<Command>();
 
-    let (ws_sender, ws_receiver) = mpsc::unbounded_channel::<Command>();
-    let (bite_sender, bite_receiver) = mpsc::unbounded_channel::<Command>();
+    // WebSocket reader
 
-    let bite_addr = SocketAddr::from(([127, 0, 0, 1], 1984));
-
-    tokio::spawn(handle_websocket(socket, bite_sender, bite_receiver));
-    tokio::spawn(handle_bite(bite_addr, ws_sender, ws_receiver));
-}
-
-async fn handle_websocket(
-    socket: WebSocket,
-    bite_sender: UnboundedSender<Command>,
-    bite_receiver: UnboundedReceiver<Command>,
-) {
-    let (sender, receiver) = socket.split();
-
-    tokio::spawn(ws_writer(sender, bite_receiver));
-    tokio::spawn(ws_reader(receiver, bite_sender));
-}
-
-async fn handle_bite(
-    addr: SocketAddr,
-    ws_sender: UnboundedSender<Command>,
-    ws_receiver: UnboundedReceiver<Command>,
-) {
-    match TcpStream::connect(addr).await {
-        Ok(tcp) => {
-            let (receiver, sender) = tcp.into_split();
-
-            tokio::spawn(bite_writer(sender, ws_receiver));
-            tokio::spawn(bite_reader(receiver, ws_sender));
-        }
-
-        Err(e) => {
-            println!("Error: {:?}", e);
-        }
-    }
-}
-
-async fn ws_reader(mut receiver: SplitStream<WebSocket>, bite_sender: UnboundedSender<Command>) {
-    loop {
-        match receiver.next().await {
-            Some(Ok(msg)) => match msg {
+    let mut websocket_reader = tokio::spawn(async move {
+        while let Some(msg) = ws_read.next().await {
+            match msg.unwrap() {
                 Message::Text(text) => {
-                    println!("Text: {}", text);
-                    bite_sender.send(Command::Text(text)).unwrap();
+                    println!("BITE -> Text: {}", text);
+                    bite_tx.send(Command::Text(text)).unwrap();
                 }
 
                 Message::Binary(binary) => {
-                    println!("Binary received");
-                    bite_sender.send(Command::Binary(binary)).unwrap();
+                    println!("BITE -> Binary");
+                    bite_tx.send(Command::Binary(binary)).unwrap();
                 }
 
-                Message::Ping(binary) => {
-                    println!("Ping");
-                    bite_sender.send(Command::Binary(binary)).unwrap();
+                Message::Ping(ping) => {
+                    println!("BITE -> Ping");
+                    bite_tx.send(Command::Binary(ping)).unwrap();
                 }
 
-                Message::Pong(binary) => {
-                    println!("Pong");
-                    bite_sender.send(Command::Binary(binary)).unwrap();
+                Message::Pong(pong) => {
+                    println!("BITE -> Pong");
+                    bite_tx.send(Command::Binary(pong)).unwrap();
                 }
 
                 Message::Close(_) => {
-                    // CloseFrame?
-
-                    println!("Client disconnected");
-
-                    // Handling client disconnection, including BITE.
-
-                    return;
+                    println!("BITE -> Close");
+                    break;
                 }
-            },
-
-            Some(Err(err)) => {
-                println!("Error: {:?}", err);
-                break;
-            }
-
-            None => {
-                println!("WebSocket receiver closed");
-                break;
             }
         }
-    }
-}
+    });
 
-async fn ws_writer(
-    mut sender: SplitSink<WebSocket, Message>,
-    mut bite_receiver: UnboundedReceiver<Command>,
-) {
-    loop {
-        match bite_receiver.recv().await {
-            Some(Command::Text(text)) => {
-                println!("Text -> BITE: {}", text);
-                sender.send(Message::Text(text)).await.unwrap();
-            }
+    // WebSocket writer
 
-            Some(Command::Binary(binary)) => {
-                println!("Binary -> BITE");
-                sender.send(Message::Binary(binary)).await.unwrap();
-            }
+    let mut websocket_writer = tokio::spawn(async move {
+        while let Some(cmd) = ws_rx.recv().await {
+            match cmd {
+                Command::Text(text) => {
+                    println!("Text -> BITE: {}", text);
+                    ws_write.send(Message::Text(text)).await.unwrap();
+                }
 
-            None => {
-                println!("WebSocket bite_receiver closed");
-                break;
+                Command::Binary(binary) => {
+                    println!("Binary -> BITE");
+                    ws_write.send(Message::Binary(binary)).await.unwrap();
+                }
             }
         }
-    }
-}
+    });
 
-async fn bite_reader(reader: OwnedReadHalf, ws_sender: UnboundedSender<Command>) {
-    loop {
-        reader.readable().await.unwrap();
+    // BITE reader
 
-        let mut received = vec![0; 4096];
-        let mut bytes_read = 0;
+    let bite_addr = SocketAddr::from(([127, 0, 0, 1], 1984));
+    let (bite_read, bite_write) = match TcpStream::connect(bite_addr).await {
+        Ok(tcp) => tcp.into_split(),
+        Err(_) => return,
+    };
 
+    let mut bite_reader = tokio::spawn(async move {
         loop {
-            match reader.try_read(&mut received) {
-                Ok(0) => {
-                    // Reading 0 bytes means the other side has closed the
-                    // connection or is done writing, then so are we.
-                    return;
-                }
+            bite_read.readable().await.unwrap();
 
-                Ok(n) => {
-                    bytes_read += n;
-                    if bytes_read == received.len() {
-                        received.resize(received.len() + 1024, 0);
+            let mut received = vec![0; 4096];
+            let mut bytes_read = 0;
+
+            loop {
+                match bite_read.try_read(&mut received) {
+                    Ok(0) => {
+                        // Reading 0 bytes means the other side has closed the
+                        // connection or is done writing, then so are we.
+                        return;
                     }
+
+                    Ok(n) => {
+                        bytes_read += n;
+                        if bytes_read == received.len() {
+                            received.resize(received.len() + 1024, 0);
+                        }
+                    }
+
+                    // Would block "errors" are the OS's way of saying that the
+                    // connection is not actually ready to perform this I/O operation.
+                    Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => break,
+
+                    // Got interrupted (how rude!), we'll try again.
+                    Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
+
+                    // Other errors we'll consider fatal.
+                    Err(_) => return,
+                }
+            }
+
+            let received = &received[..bytes_read];
+            ws_tx.send(Command::Binary(received.to_vec())).unwrap();
+        }
+    });
+
+    // BITE writer
+
+    let mut bite_writer = tokio::spawn(async move {
+        while let Some(cmd) = bite_rx.recv().await {
+            match cmd {
+                Command::Text(text) => {
+                    println!("Text: {}", text);
+                    bite_write.try_write(text.as_bytes()).unwrap();
                 }
 
-                // Would block "errors" are the OS's way of saying that the
-                // connection is not actually ready to perform this I/O operation.
-                Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => break,
-
-                // Got interrupted (how rude!), we'll try again.
-                Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
-
-                // Other errors we'll consider fatal.
-                Err(_) => return,
+                Command::Binary(binary) => {
+                    println!("Binary received");
+                    bite_write.try_write(&binary).unwrap();
+                }
             }
         }
+    });
 
-        let received = &received[..bytes_read];
-        ws_sender.send(Command::Binary(received.to_vec())).unwrap();
-    }
-}
+    // Everyone fails together.
 
-async fn bite_writer(writer: OwnedWriteHalf, mut ws_receiver: UnboundedReceiver<Command>) {
-    loop {
-        match ws_receiver.recv().await {
-            Some(_) => todo!(),
-            None => todo!(),
-        }
-    }
+    tokio::select! {
+        _ = (&mut websocket_reader) => { websocket_writer.abort(); bite_writer.abort(); },
+        _ = (&mut websocket_writer) => { websocket_reader.abort(); bite_reader.abort(); },
+        _ = (&mut bite_reader) => { bite_writer.abort(); websocket_writer.abort(); },
+        _ = (&mut bite_writer) => { bite_reader.abort(); websocket_reader.abort(); },
+    };
+
+    let mut state = state.lock().unwrap();
+    state.count += 1;
+    drop(state);
 }
