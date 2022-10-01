@@ -1,4 +1,8 @@
 
+    IPs should be environment variables.
+    The JavaScript client library.
+
+
     10/1/2022
     x Basically, a simple proxy prototype to a tcp server, using Tokio Axum.
     ? Remove all utf8 stuff from the code, and replace it with utf8_lossy.
