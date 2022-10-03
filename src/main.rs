@@ -38,11 +38,11 @@ async fn main() {
 }
 
 async fn index() -> Html<&'static str> {
-    Html(include_str!("../web/client.html"))
+    Html(include_str!("../web/bite-client.html"))
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, state: Arc<Mutex<State>>) -> Response {
-    println!("\nNew connection: {:?}\n", ws);
+    println!("\n{:?}\n", ws);
     ws.on_upgrade(|ws| start_sockets(ws, state))
 }
 
@@ -54,7 +54,7 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
 
     let (mut ws_write, mut ws_read) = socket.split();
 
-    let mut websocket_reader = tokio::spawn(async move {
+    let mut ws_reader = tokio::spawn(async move {
         while let Some(msg) = ws_read.next().await {
             match msg.unwrap() {
                 Message::Text(text) => {
@@ -87,16 +87,16 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
 
     // WebSocket writer
 
-    let mut websocket_writer = tokio::spawn(async move {
+    let mut ws_writer = tokio::spawn(async move {
         while let Some(cmd) = ws_rx.recv().await {
             match cmd {
                 Command::Text(text) => {
-                    println!("ws send (text): {}", text);
+                    println!("ws write (text): {}", text);
                     ws_write.send(Message::Text(text)).await.unwrap();
                 }
 
                 Command::Binary(binary) => {
-                    println!("ws send (binary): {:?}", binary);
+                    println!("ws write (binary): {:?}", binary);
                     ws_write.send(Message::Binary(binary)).await.unwrap();
                 }
             }
@@ -147,6 +147,7 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
 
             let received = &received[..bytes_read];
             println!("tcp -> ws: {:?}", received);
+
             ws_tx.send(Command::Binary(received.to_vec())).unwrap();
         }
     });
@@ -172,10 +173,10 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
     // Everyone fails together.
 
     tokio::select! {
-        _ = (&mut websocket_reader) => { websocket_writer.abort(); tcp_writer.abort(); },
-        _ = (&mut websocket_writer) => { websocket_reader.abort(); tcp_reader.abort(); },
-        _ = (&mut tcp_reader) => { tcp_writer.abort(); websocket_writer.abort(); },
-        _ = (&mut tcp_writer) => { tcp_reader.abort(); websocket_reader.abort(); },
+        _ = (&mut ws_reader) => { ws_writer.abort(); tcp_reader.abort(); },
+        _ = (&mut ws_writer) => { ws_reader.abort(); tcp_reader.abort(); },
+        _ = (&mut tcp_reader) => { tcp_writer.abort(); ws_reader.abort(); },
+        _ = (&mut tcp_writer) => { tcp_reader.abort(); ws_writer.abort(); },
     };
 
     let mut state = state.lock().unwrap();
