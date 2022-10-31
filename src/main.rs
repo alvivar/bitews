@@ -24,6 +24,8 @@ struct State {
 
 #[tokio::main]
 async fn main() {
+    println!("\nBIT:E WS");
+
     let shared = Arc::new(Mutex::new(State { count: 0 }));
 
     let app: Router = Router::new()
@@ -47,6 +49,11 @@ async fn ws_handler(ws: WebSocketUpgrade, state: Arc<Mutex<State>>) -> Response 
 }
 
 async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
+    {
+        let mut state = state.lock().unwrap();
+        state.count += 1;
+    }
+
     let (ws_tx, mut ws_rx) = mpsc::unbounded_channel::<Command>();
     let (tcp_tx, mut tcp_rx) = mpsc::unbounded_channel::<Command>();
 
@@ -173,13 +180,9 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
     // Everyone fails together.
 
     tokio::select! {
-        _ = (&mut ws_reader) => { ws_writer.abort(); tcp_reader.abort(); },
-        _ = (&mut ws_writer) => { ws_reader.abort(); tcp_reader.abort(); },
-        _ = (&mut tcp_reader) => { tcp_writer.abort(); ws_reader.abort(); },
-        _ = (&mut tcp_writer) => { tcp_reader.abort(); ws_writer.abort(); },
+        _ = (&mut ws_reader) => { println!("ws_reader end"); ws_writer.abort(); tcp_reader.abort(); tcp_writer.abort(); },
+        _ = (&mut ws_writer) => { println!("ws_writer end"); ws_reader.abort(); tcp_reader.abort(); tcp_writer.abort(); },
+        _ = (&mut tcp_reader) => { println!("tcp_reader end"); ws_reader.abort(); ws_writer.abort(); tcp_writer.abort(); },
+        _ = (&mut tcp_writer) => { println!("tcp_writer end"); ws_reader.abort(); ws_writer.abort(); tcp_reader.abort(); },
     };
-
-    let mut state = state.lock().unwrap();
-    state.count += 1;
-    drop(state);
 }
