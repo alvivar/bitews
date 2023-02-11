@@ -5,10 +5,10 @@ use axum::Router;
 use futures::sink::SinkExt;
 use futures::stream::StreamExt;
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::{self};
+use tokio::sync::mpsc;
 
 use std::include_str;
-use std::io::{self};
+use std::io;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
@@ -59,10 +59,10 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
 
     // WebSocket reader
 
-    let (mut ws_write, mut ws_read) = socket.split();
+    let (mut ws_writer, mut ws_reader) = socket.split();
 
-    let mut ws_reader = tokio::spawn(async move {
-        while let Some(msg) = ws_read.next().await {
+    let mut ws_reader_handler = tokio::spawn(async move {
+        while let Some(msg) = ws_reader.next().await {
             match msg.unwrap() {
                 Message::Text(text) => {
                     println!("ws -> tcp: {}", text);
@@ -94,17 +94,17 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
 
     // WebSocket writer
 
-    let mut ws_writer = tokio::spawn(async move {
+    let mut ws_writer_handler = tokio::spawn(async move {
         while let Some(cmd) = ws_rx.recv().await {
             match cmd {
                 Command::Text(text) => {
                     println!("ws write (text): {}", text);
-                    ws_write.send(Message::Text(text)).await.unwrap();
+                    ws_writer.send(Message::Text(text)).await.unwrap();
                 }
 
                 Command::Binary(binary) => {
                     println!("ws write (binary): {:?}", binary);
-                    ws_write.send(Message::Binary(binary)).await.unwrap();
+                    ws_writer.send(Message::Binary(binary)).await.unwrap();
                 }
             }
         }
@@ -170,7 +170,7 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
                 }
 
                 Command::Binary(binary) => {
-                    println!("tcp try_write (Binary): {:?}", binary);
+                    println!("tcp try_write (binary): {:?}", binary);
                     tcp_write.try_write(&binary).unwrap();
                 }
             }
@@ -180,9 +180,9 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
     // Everyone fails together.
 
     tokio::select! {
-        _ = (&mut ws_reader) => { println!("ws_reader end"); ws_writer.abort(); tcp_reader.abort(); tcp_writer.abort(); },
-        _ = (&mut ws_writer) => { println!("ws_writer end"); ws_reader.abort(); tcp_reader.abort(); tcp_writer.abort(); },
-        _ = (&mut tcp_reader) => { println!("tcp_reader end"); ws_reader.abort(); ws_writer.abort(); tcp_writer.abort(); },
-        _ = (&mut tcp_writer) => { println!("tcp_writer end"); ws_reader.abort(); ws_writer.abort(); tcp_reader.abort(); },
+        _ = (&mut ws_reader_handler) => { println!("ws_reader end"); ws_writer_handler.abort(); tcp_reader.abort(); tcp_writer.abort(); },
+        _ = (&mut ws_writer_handler) => { println!("ws_writer end"); ws_reader_handler.abort(); tcp_reader.abort(); tcp_writer.abort(); },
+        _ = (&mut tcp_reader) => { println!("tcp_reader end"); ws_reader_handler.abort(); ws_writer_handler.abort(); tcp_writer.abort(); },
+        _ = (&mut tcp_writer) => { println!("tcp_writer end"); ws_reader_handler.abort(); ws_writer_handler.abort(); tcp_reader.abort(); },
     };
 }
