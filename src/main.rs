@@ -26,13 +26,34 @@ struct State {
 async fn main() {
     println!("\nBIT:E WS");
 
+    let server = match env::var("SERVER") {
+        Ok(v) => v,
+        Err(_) => {
+            println!("Environmental variable SERVER is missing!");
+            println!("The URI where the server is gonna receive connections.");
+            println!("BASH i.e: export SERVER=0.0.0.0:1983");
+            exit(1);
+        }
+    };
+
+    let proxy = match env::var("PROXY") {
+        Ok(v) => v,
+        Err(_) => {
+            println!("Environmental variable PROXY is missing!");
+            println!("That's the Bite server that we are gonna proxy.");
+            println!("BASH i.e: export PROXY=0.0.0.0:1984");
+            exit(1);
+        }
+    };
+
+
     let shared = Arc::new(Mutex::new(State { count: 0 }));
 
     let app: Router = Router::new()
         .route("/", get(index))
         .route("/ws", get(move |ws| ws_handler(ws, Arc::clone(&shared))));
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 1983));
+    let addr = SocketAddr::from(([0, 0, 0, 0], SERVER));
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .await
@@ -112,7 +133,7 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
 
     // BITE reader
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 1984));
+    let addr = SocketAddr::from(([0, 0, 0, 0], PROXY));
     let (tcp_read, tcp_write) = match TcpStream::connect(addr).await {
         Ok(tcp) => tcp.into_split(),
         Err(_) => return,
