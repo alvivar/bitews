@@ -7,6 +7,7 @@ use futures::stream::StreamExt;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 
+use std::env;
 use std::include_str;
 use std::io;
 use std::net::SocketAddr;
@@ -20,40 +21,43 @@ enum Command {
 
 struct State {
     count: usize,
+    proxy_port: u16,
 }
 
 #[tokio::main]
 async fn main() {
-    println!("\nBIT:E WS");
+    println!("\nBIT:E WebSocket Proxy\n");
 
-    let server = match env::var("SERVER") {
-        Ok(v) => v,
+    let server_port = match env::var("SERVER") {
+        Ok(v) => v.parse::<u16>().unwrap(),
         Err(_) => {
             println!("Environmental variable SERVER is missing!");
             println!("The URI where the server is gonna receive connections.");
             println!("BASH i.e: export SERVER=0.0.0.0:1983");
-            exit(1);
+            return ();
         }
     };
 
-    let proxy = match env::var("PROXY") {
-        Ok(v) => v,
+    let proxy_port = match env::var("PROXY") {
+        Ok(v) => v.parse::<u16>().unwrap(),
         Err(_) => {
             println!("Environmental variable PROXY is missing!");
             println!("That's the Bite server that we are gonna proxy.");
             println!("BASH i.e: export PROXY=0.0.0.0:1984");
-            exit(1);
+            return ();
         }
     };
 
-
-    let shared = Arc::new(Mutex::new(State { count: 0 }));
+    let shared = Arc::new(Mutex::new(State {
+        count: 0,
+        proxy_port,
+    }));
 
     let app: Router = Router::new()
         .route("/", get(index))
         .route("/ws", get(move |ws| ws_handler(ws, Arc::clone(&shared))));
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], SERVER));
+    let addr = SocketAddr::from(([0, 0, 0, 0], server_port));
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .await
@@ -133,7 +137,7 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
 
     // BITE reader
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], PROXY));
+    let addr = SocketAddr::from(([0, 0, 0, 0], state.lock().unwrap().proxy_port));
     let (tcp_read, tcp_write) = match TcpStream::connect(addr).await {
         Ok(tcp) => tcp.into_split(),
         Err(_) => return,
