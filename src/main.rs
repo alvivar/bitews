@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use std::env;
 use std::include_str;
 use std::io;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
@@ -21,7 +21,15 @@ enum Command {
 
 struct State {
     count: usize,
-    proxy: String,
+    proxy: SocketAddr,
+}
+
+fn string_to_socketaddr(address: &str) -> SocketAddr {
+    let host_port: Vec<&str> = address.split(':').collect();
+    let host = host_port[0];
+    let port = host_port[1];
+    let socket_addr = format!("{}:{}", host, port).parse().unwrap();
+    socket_addr
 }
 
 #[tokio::main]
@@ -31,10 +39,9 @@ async fn main() {
     let server = match env::var("SERVER") {
         Ok(var) => var,
         Err(_) => {
-            println!("Environmental variable SERVER is missing!");
-            println!("The URI where the server is gonna receive connections.");
+            println!("Error: The required environmental variable SERVER is missing.");
+            println!("The SERVER variable must contain the address where server is going to receive connections.");
             println!("BASH i.e: export SERVER=0.0.0.0:1983");
-
             return ();
         }
     };
@@ -42,13 +49,15 @@ async fn main() {
     let proxy = match env::var("PROXY") {
         Ok(var) => var,
         Err(_) => {
-            println!("Environmental variable PROXY is missing!");
-            println!("That's the Bite server that we are gonna proxy.");
+            println!("Error: The required environmental variable PROXY is missing.");
+            println!("The PROXY variable must contain the URI of the BITE server to be proxied.");
             println!("BASH i.e: export PROXY=0.0.0.0:1984");
-
             return ();
         }
     };
+
+    let server = string_to_socketaddr(&server);
+    let proxy = string_to_socketaddr(&proxy);
 
     let shared = Arc::new(Mutex::new(State { count: 0, proxy }));
 
@@ -56,12 +65,7 @@ async fn main() {
         .route("/", get(index))
         .route("/ws", get(move |ws| ws_handler(ws, Arc::clone(&shared))));
 
-    let (host_str, port_str) = server.split_at(server.find(':').unwrap());
-    let host = host_str.parse::<IpAddr>().unwrap();
-    let port = port_str[1..].parse::<u16>().unwrap();
-
-    let addr = SocketAddr::from((host, port));
-    axum::Server::bind(&addr)
+    axum::Server::bind(&server)
         .serve(app.into_make_service())
         .await
         .unwrap();
@@ -91,29 +95,36 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
 
     let mut ws_reader_handler = tokio::spawn(async move {
         while let Some(msg) = ws_reader.next().await {
-            match msg.unwrap() {
-                Message::Text(text) => {
-                    println!("ws -> tcp: {}", text);
-                    tcp_tx.send(Command::Text(text)).unwrap();
-                }
+            match msg {
+                Ok(msg) => match msg {
+                    Message::Text(text) => {
+                        println!("ws -> tcp: {}", text);
+                        tcp_tx.send(Command::Text(text)).unwrap();
+                    }
 
-                Message::Binary(binary) => {
-                    println!("ws -> tcp: Binary");
-                    tcp_tx.send(Command::Binary(binary)).unwrap();
-                }
+                    Message::Binary(binary) => {
+                        println!("ws -> tcp: Binary");
+                        tcp_tx.send(Command::Binary(binary)).unwrap();
+                    }
 
-                Message::Ping(ping) => {
-                    println!("ws -> tcp: Ping");
-                    tcp_tx.send(Command::Binary(ping)).unwrap();
-                }
+                    Message::Ping(ping) => {
+                        println!("ws -> tcp: Ping");
+                        tcp_tx.send(Command::Binary(ping)).unwrap();
+                    }
 
-                Message::Pong(pong) => {
-                    println!("ws -> tcp: Pong");
-                    tcp_tx.send(Command::Binary(pong)).unwrap();
-                }
+                    Message::Pong(pong) => {
+                        println!("ws -> tcp: Pong");
+                        tcp_tx.send(Command::Binary(pong)).unwrap();
+                    }
 
-                Message::Close(_) => {
-                    println!("ws closed");
+                    Message::Close(_) => {
+                        println!("ws closed");
+                        break;
+                    }
+                },
+
+                Err(err) => {
+                    println!("ws closed with error: {}", err);
                     break;
                 }
             }
@@ -139,12 +150,7 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
     });
 
     // BITE reader
-    let proxy = state.lock().unwrap().proxy.clone();
-    let (host_str, port_str) = proxy.split_at(proxy.find(':').unwrap());
-    let host = host_str.parse::<IpAddr>().unwrap();
-    let port = port_str[1..].parse::<u16>().unwrap();
-
-    let addr = SocketAddr::from((host, port));
+    let addr = state.lock().unwrap().proxy;
     let (tcp_read, tcp_write) = match TcpStream::connect(addr).await {
         Ok(tcp) => tcp.into_split(),
         Err(_) => return,
