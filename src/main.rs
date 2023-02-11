@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use std::env;
 use std::include_str;
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
@@ -21,43 +21,46 @@ enum Command {
 
 struct State {
     count: usize,
-    proxy_port: u16,
+    proxy: String,
 }
 
 #[tokio::main]
 async fn main() {
     println!("\nBIT:E WebSocket Proxy\n");
 
-    let server_port = match env::var("SERVER") {
-        Ok(v) => v.parse::<u16>().unwrap(),
+    let server = match env::var("SERVER") {
+        Ok(var) => var,
         Err(_) => {
             println!("Environmental variable SERVER is missing!");
             println!("The URI where the server is gonna receive connections.");
             println!("BASH i.e: export SERVER=0.0.0.0:1983");
+
             return ();
         }
     };
 
-    let proxy_port = match env::var("PROXY") {
-        Ok(v) => v.parse::<u16>().unwrap(),
+    let proxy = match env::var("PROXY") {
+        Ok(var) => var,
         Err(_) => {
             println!("Environmental variable PROXY is missing!");
             println!("That's the Bite server that we are gonna proxy.");
             println!("BASH i.e: export PROXY=0.0.0.0:1984");
+
             return ();
         }
     };
 
-    let shared = Arc::new(Mutex::new(State {
-        count: 0,
-        proxy_port,
-    }));
+    let shared = Arc::new(Mutex::new(State { count: 0, proxy }));
 
     let app: Router = Router::new()
         .route("/", get(index))
         .route("/ws", get(move |ws| ws_handler(ws, Arc::clone(&shared))));
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], server_port));
+    let (host_str, port_str) = server.split_at(server.find(':').unwrap());
+    let host = host_str.parse::<IpAddr>().unwrap();
+    let port = port_str[1..].parse::<u16>().unwrap();
+
+    let addr = SocketAddr::from((host, port));
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .await
@@ -136,8 +139,12 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
     });
 
     // BITE reader
+    let proxy = state.lock().unwrap().proxy.clone();
+    let (host_str, port_str) = proxy.split_at(proxy.find(':').unwrap());
+    let host = host_str.parse::<IpAddr>().unwrap();
+    let port = port_str[1..].parse::<u16>().unwrap();
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], state.lock().unwrap().proxy_port));
+    let addr = SocketAddr::from((host, port));
     let (tcp_read, tcp_write) = match TcpStream::connect(addr).await {
         Ok(tcp) => tcp.into_split(),
         Err(_) => return,
