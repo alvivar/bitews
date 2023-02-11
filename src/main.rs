@@ -24,15 +24,7 @@ struct State {
     proxy: SocketAddr,
 }
 
-fn string_ip_to_socketaddr(address: &str) -> SocketAddr {
-    let host_port: Vec<&str> = address.split(':').collect();
-    let host = host_port[0];
-    let port = host_port[1];
-    let socket_addr = format!("{}:{}", host, port).parse().unwrap();
-    socket_addr
-}
-
-fn string_host_to_socketaddr(address: &str) -> SocketAddr {
+fn string_to_socketaddr(address: &str) -> SocketAddr {
     let socket_addr = address.to_socket_addrs().unwrap().next().unwrap();
     socket_addr
 }
@@ -61,9 +53,8 @@ async fn main() {
         }
     };
 
-    let server = string_host_to_socketaddr(&server);
-    let proxy = string_ip_to_socketaddr(&proxy);
-
+    let server = string_to_socketaddr(&server);
+    let proxy = string_to_socketaddr(&proxy);
     let shared = Arc::new(Mutex::new(State { count: 0, proxy }));
 
     let app: Router = Router::new()
