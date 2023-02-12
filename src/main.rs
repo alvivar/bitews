@@ -37,7 +37,7 @@ async fn main() {
         Ok(var) => var,
         Err(_) => {
             println!("Error: The required environmental variable SERVER is missing.");
-            println!("The SERVER variable must contain the address where server is going to receive connections.");
+            println!("The SERVER variable must contain the address of the server.");
             println!("BASH i.e: export SERVER=0.0.0.0:1983");
             return ();
         }
@@ -78,8 +78,7 @@ async fn ws_handler(ws: WebSocketUpgrade, state: Arc<Mutex<State>>) -> Response 
 
 async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
     {
-        let mut state = state.lock().unwrap();
-        state.count += 1;
+        state.lock().unwrap().count += 1;
     }
 
     let (ws_tx, mut ws_rx) = mpsc::unbounded_channel::<Command>();
@@ -146,6 +145,7 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
     });
 
     // BITE reader
+
     let addr = state.lock().unwrap().proxy;
     let (tcp_read, tcp_write) = match TcpStream::connect(addr).await {
         Ok(tcp) => tcp.into_split(),
@@ -219,4 +219,8 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
         _ = (&mut tcp_reader) => { println!("tcp_reader end"); ws_reader_handler.abort(); ws_writer_handler.abort(); tcp_writer.abort(); },
         _ = (&mut tcp_writer) => { println!("tcp_writer end"); ws_reader_handler.abort(); ws_writer_handler.abort(); tcp_reader.abort(); },
     };
+
+    // One less.
+
+    state.lock().unwrap().count -= 1;
 }
