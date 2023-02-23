@@ -156,7 +156,7 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
         loop {
             tcp_read.readable().await.unwrap();
 
-            let mut received = vec![0; 4096];
+            let mut received = vec![0; 8192];
             let mut bytes_read = 0;
 
             loop {
