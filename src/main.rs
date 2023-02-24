@@ -4,6 +4,7 @@ use axum::routing::get;
 use axum::Router;
 use futures::sink::SinkExt;
 use futures::stream::StreamExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 
@@ -25,8 +26,7 @@ struct State {
 }
 
 fn string_to_socketaddr(address: &str) -> SocketAddr {
-    let socket_addr = address.to_socket_addrs().unwrap().next().unwrap();
-    socket_addr
+    address.to_socket_addrs().unwrap().next().unwrap()
 }
 
 #[tokio::main]
@@ -39,7 +39,7 @@ async fn main() {
             println!("Error: The required environmental variable SERVER is missing.");
             println!("The SERVER variable must contain the address of the server.");
             println!("BASH i.e: export SERVER=0.0.0.0:1983");
-            return ();
+            return;
         }
     };
 
@@ -49,7 +49,7 @@ async fn main() {
             println!("Error: The required environmental variable PROXY is missing.");
             println!("The PROXY variable must contain the URI of the BITE server to be proxied.");
             println!("BASH i.e: export PROXY=0.0.0.0:1984");
-            return ();
+            return;
         }
     };
 
@@ -72,7 +72,7 @@ async fn index() -> Html<&'static str> {
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, state: Arc<Mutex<State>>) -> Response {
-    println!("\n{:?}\n", ws);
+    println!("\n{ws:?}\n");
     ws.on_upgrade(|ws| start_sockets(ws, state))
 }
 
@@ -93,7 +93,7 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
             match msg {
                 Ok(msg) => match msg {
                     Message::Text(text) => {
-                        println!("ws -> tcp: {}", text);
+                        println!("ws -> tcp: {text}");
                         tcp_tx.send(Command::Text(text)).unwrap();
                     }
 
@@ -119,7 +119,7 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
                 },
 
                 Err(err) => {
-                    println!("ws closed with error: {}", err);
+                    println!("ws closed with error: {err}");
                     break;
                 }
             }
@@ -132,12 +132,12 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
         while let Some(cmd) = ws_rx.recv().await {
             match cmd {
                 Command::Text(text) => {
-                    println!("ws write (text): {}", text);
+                    println!("ws write (text): {text}");
                     ws_writer.send(Message::Text(text)).await.unwrap();
                 }
 
                 Command::Binary(binary) => {
-                    println!("ws write (binary): {:?}", binary);
+                    println!("ws write (binary): {binary:?}");
                     ws_writer.send(Message::Binary(binary)).await.unwrap();
                 }
             }
@@ -147,7 +147,7 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
     // BITE reader
 
     let addr = state.lock().unwrap().proxy;
-    let (tcp_read, tcp_write) = match TcpStream::connect(addr).await {
+    let (mut tcp_read, mut tcp_write) = match TcpStream::connect(addr).await {
         Ok(tcp) => tcp.into_split(),
         Err(_) => return,
     };
@@ -160,7 +160,7 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
             let mut bytes_read = 0;
 
             loop {
-                match tcp_read.try_read(&mut received) {
+                match tcp_read.read(&mut received).await {
                     Ok(0) => {
                         // Reading 0 bytes means the other side has closed the
                         // connection or is done writing, then so are we.
@@ -187,7 +187,7 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
             }
 
             let received = &received[..bytes_read];
-            println!("tcp -> ws: {:?}", received);
+            println!("tcp -> ws: {received:?}");
 
             ws_tx.send(Command::Binary(received.to_vec())).unwrap();
         }
@@ -199,13 +199,13 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
         while let Some(cmd) = tcp_rx.recv().await {
             match cmd {
                 Command::Text(text) => {
-                    println!("tcp try_write (text): {}", text);
-                    tcp_write.try_write(text.as_bytes()).unwrap();
+                    println!("tcp try_write (text): {text}");
+                    tcp_write.write_all(text.as_bytes()).await.unwrap();
                 }
 
                 Command::Binary(binary) => {
-                    println!("tcp try_write (binary): {:?}", binary);
-                    tcp_write.try_write(&binary).unwrap();
+                    println!("tcp try_write (binary): {binary:?}");
+                    tcp_write.write_all(&binary).await.unwrap();
                 }
             }
         }
