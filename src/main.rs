@@ -4,7 +4,6 @@ use axum::routing::get;
 use axum::Router;
 use futures::sink::SinkExt;
 use futures::stream::StreamExt;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 
@@ -13,6 +12,8 @@ use std::include_str;
 use std::io;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::{Arc, Mutex};
+
+const MAX_BUFFER_SIZE: usize = 1024;
 
 #[derive(Debug)]
 enum Command {
@@ -147,49 +148,45 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
     // BITE reader
 
     let addr = state.lock().unwrap().proxy;
-    let (mut tcp_read, mut tcp_write) = match TcpStream::connect(addr).await {
+    let (tcp_read, tcp_write) = match TcpStream::connect(addr).await {
         Ok(tcp) => tcp.into_split(),
         Err(_) => return,
     };
 
     let mut tcp_reader = tokio::spawn(async move {
+        let mut received = vec![0; MAX_BUFFER_SIZE];
+
         loop {
             tcp_read.readable().await.unwrap();
 
-            let mut received = vec![0; 8192];
-            let mut bytes_read = 0;
-
-            loop {
-                match tcp_read.read(&mut received).await {
-                    Ok(0) => {
-                        // Reading 0 bytes means the other side has closed the
-                        // connection or is done writing, then so are we.
-                        return;
-                    }
-
-                    Ok(n) => {
-                        bytes_read += n;
-                        if bytes_read == received.len() {
-                            received.resize(received.len() + 1024, 0);
-                        }
-                    }
-
-                    // Would block "errors" are the OS's way of saying that the
-                    // connection is not actually ready to perform this I/O operation.
-                    Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => break,
-
-                    // Got interrupted (how rude!), we'll try again.
-                    Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
-
-                    // Other errors we'll consider fatal.
-                    Err(_) => return,
-                }
+            if received.capacity() == received.len() {
+                received.reserve(MAX_BUFFER_SIZE);
             }
 
-            let received = &received[..bytes_read];
-            println!("tcp -> ws: {received:?}");
+            match tcp_read.try_read(&mut received) {
+                Ok(0) => {
+                    // Reading 0 bytes means the other side has closed the
+                    // connection or is done writing, then so are we.
+                    return;
+                }
 
-            ws_tx.send(Command::Binary(received.to_vec())).unwrap();
+                Ok(n) => {
+                    let received = &received[..n];
+                    ws_tx.send(Command::Binary(received.to_vec())).unwrap();
+                    println!("tcp -> ws: {received:?}");
+                }
+
+                // Would block "errors" are the OS's way of saying that the
+                // connection is not actually ready to perform this I/O
+                // operation.
+                Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => continue,
+
+                // Got interrupted, we'll try again.
+                Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
+
+                // Other errors we'll consider fatal.
+                Err(_) => return,
+            }
         }
     });
 
@@ -197,15 +194,43 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
 
     let mut tcp_writer = tokio::spawn(async move {
         while let Some(cmd) = tcp_rx.recv().await {
-            match cmd {
+            let data = match cmd {
                 Command::Text(text) => {
                     println!("tcp try_write (text): {text}");
-                    tcp_write.write_all(text.as_bytes()).await.unwrap();
+                    text.into()
                 }
 
                 Command::Binary(binary) => {
                     println!("tcp try_write (binary): {binary:?}");
-                    tcp_write.write_all(&binary).await.unwrap();
+                    binary
+                }
+            };
+
+            tcp_write.writable().await.unwrap();
+
+            let mut written = 0;
+            while written < data.len() {
+                match tcp_write.try_write(&data[written..]) {
+                    Ok(0) => {
+                        // Writing 0 bytes means the other side has closed the
+                        // connection or is done writing, then so are we.
+                        return;
+                    }
+
+                    Ok(n) => {
+                        written += n;
+                    }
+
+                    // Would block "errors" are the OS's way of saying that the
+                    // connection is not actually ready to perform this I/O
+                    // operation.
+                    Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => return,
+
+                    // Got interrupted, we'll try again.
+                    Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
+
+                    // Other errors we'll consider fatal.
+                    Err(_) => return,
                 }
             }
         }
