@@ -239,10 +239,10 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
     // Everyone fails together.
 
     tokio::select! {
-        _ = (&mut ws_reader_handler) => { println!("\nws_reader end"); ws_writer_handler.abort(); tcp_reader.abort(); tcp_writer.abort(); },
-        _ = (&mut ws_writer_handler) => { println!("\nws_writer end"); ws_reader_handler.abort(); tcp_reader.abort(); tcp_writer.abort(); },
-        _ = (&mut tcp_reader) => { println!("\ntcp_reader end"); ws_reader_handler.abort(); ws_writer_handler.abort(); tcp_writer.abort(); },
-        _ = (&mut tcp_writer) => { println!("\ntcp_writer end"); ws_reader_handler.abort(); ws_writer_handler.abort(); tcp_reader.abort(); },
+        _ = (&mut ws_reader_handler) => { println!("\nws_reader closed"); ws_writer_handler.abort(); tcp_reader.abort(); tcp_writer.abort(); },
+        _ = (&mut ws_writer_handler) => { println!("\nws_writer closed"); ws_reader_handler.abort(); tcp_reader.abort(); tcp_writer.abort(); },
+        _ = (&mut tcp_reader) => { println!("\ntcp_reader closed"); ws_reader_handler.abort(); ws_writer_handler.abort(); tcp_writer.abort(); },
+        _ = (&mut tcp_writer) => { println!("\ntcp_writer closed"); ws_reader_handler.abort(); ws_writer_handler.abort(); tcp_reader.abort(); },
     };
 
     // One less.
