@@ -13,7 +13,7 @@ use std::io;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::{Arc, Mutex};
 
-const MAX_BUFFER_SIZE: usize = 1024;
+const BUFFER_SIZE: usize = 1024;
 
 #[derive(Debug)]
 enum Command {
@@ -154,16 +154,16 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
     };
 
     let mut tcp_reader = tokio::spawn(async move {
-        let mut received = vec![0; MAX_BUFFER_SIZE];
+        let mut buffer = vec![0; BUFFER_SIZE];
 
         loop {
             tcp_read.readable().await.unwrap();
 
-            if received.capacity() == received.len() {
-                received.reserve(MAX_BUFFER_SIZE);
+            if buffer.capacity() == buffer.len() {
+                buffer.reserve(BUFFER_SIZE);
             }
 
-            match tcp_read.try_read(&mut received) {
+            match tcp_read.try_read(&mut buffer) {
                 Ok(0) => {
                     // Reading 0 bytes means the other side has closed the
                     // connection or is done writing, then so are we.
@@ -171,7 +171,7 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
                 }
 
                 Ok(n) => {
-                    let received = &received[..n];
+                    let received = &buffer[..n];
                     ws_tx.send(Command::Binary(received.to_vec())).unwrap();
                     println!("\ntcp -> ws: {received:?}");
                 }
