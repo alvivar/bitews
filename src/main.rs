@@ -36,7 +36,9 @@ fn string_to_socketaddr(address: &str) -> SocketAddr {
 
 #[tokio::main]
 async fn main() {
-    info!("\nBIT:E WebSocket Proxy\n");
+    pretty_env_logger::init();
+
+    info!("BIT:E WebSocket Proxy");
 
     let server = match env::var("SERVER") {
         Ok(var) => var,
@@ -77,7 +79,7 @@ async fn index() -> Html<&'static str> {
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, state: Arc<Mutex<State>>) -> Response {
-    info!("\n{ws:?}");
+    info!("{ws:?}");
     ws.on_upgrade(|ws| start_sockets(ws, state))
 }
 
@@ -98,33 +100,33 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
             match msg {
                 Ok(msg) => match msg {
                     Message::Text(text) => {
-                        info!("\nws -> tcp: {text}");
+                        info!("ws -> tcp: {text}");
                         tcp_tx.send(Command::Text(text)).unwrap();
                     }
 
                     Message::Binary(binary) => {
-                        info!("\nws -> tcp: Binary");
+                        info!("ws -> tcp: Binary");
                         tcp_tx.send(Command::Binary(binary)).unwrap();
                     }
 
                     Message::Ping(ping) => {
-                        info!("\nws -> tcp: Ping");
+                        info!("ws -> tcp: Ping");
                         tcp_tx.send(Command::Binary(ping)).unwrap();
                     }
 
                     Message::Pong(pong) => {
-                        info!("\nws -> tcp: Pong");
+                        info!("ws -> tcp: Pong");
                         tcp_tx.send(Command::Binary(pong)).unwrap();
                     }
 
                     Message::Close(_) => {
-                        info!("\nws closed");
+                        info!("ws closed");
                         break;
                     }
                 },
 
                 Err(err) => {
-                    info!("\nws closed with error: {err}");
+                    info!("ws closed with error: {err}");
                     break;
                 }
             }
@@ -137,12 +139,12 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
         while let Some(cmd) = ws_rx.recv().await {
             match cmd {
                 Command::Text(text) => {
-                    info!("\nws write (text): {text}");
+                    info!("ws write (text): {text}");
                     ws_writer.send(Message::Text(text)).await.unwrap();
                 }
 
                 Command::Binary(binary) => {
-                    info!("\nws write (binary): {binary:?}");
+                    info!("ws write (binary): {binary:?}");
                     ws_writer.send(Message::Binary(binary)).await.unwrap();
                 }
             }
@@ -177,7 +179,7 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
                 Ok(n) => {
                     let received = &buffer[..n];
                     ws_tx.send(Command::Binary(received.to_vec())).unwrap();
-                    info!("\ntcp -> ws: {received:?}");
+                    info!("tcp -> ws: {received:?}");
                 }
 
                 // Would block "errors" are the OS's way of saying that the
@@ -200,12 +202,12 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
         while let Some(cmd) = tcp_rx.recv().await {
             let data = match cmd {
                 Command::Text(text) => {
-                    info!("\ntcp try_write (text): {text}");
+                    info!("tcp try_write (text): {text}");
                     text.into()
                 }
 
                 Command::Binary(binary) => {
-                    info!("\ntcp try_write (binary): {binary:?}");
+                    info!("tcp try_write (binary): {binary:?}");
                     binary
                 }
             };
@@ -243,10 +245,10 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
     // Everyone fails together.
 
     tokio::select! {
-        _ = (&mut ws_reader_handler) => { info!("\nws_reader closed"); ws_writer_handler.abort(); tcp_reader.abort(); tcp_writer.abort(); },
-        _ = (&mut ws_writer_handler) => { info!("\nws_writer closed"); ws_reader_handler.abort(); tcp_reader.abort(); tcp_writer.abort(); },
-        _ = (&mut tcp_reader) => { info!("\ntcp_reader closed"); ws_reader_handler.abort(); ws_writer_handler.abort(); tcp_writer.abort(); },
-        _ = (&mut tcp_writer) => { info!("\ntcp_writer closed"); ws_reader_handler.abort(); ws_writer_handler.abort(); tcp_reader.abort(); },
+        _ = (&mut ws_reader_handler) => { info!("ws_reader closed"); ws_writer_handler.abort(); tcp_reader.abort(); tcp_writer.abort(); },
+        _ = (&mut ws_writer_handler) => { info!("ws_writer closed"); ws_reader_handler.abort(); tcp_reader.abort(); tcp_writer.abort(); },
+        _ = (&mut tcp_reader) => { info!("tcp_reader closed"); ws_reader_handler.abort(); ws_writer_handler.abort(); tcp_writer.abort(); },
+        _ = (&mut tcp_writer) => { info!("tcp_writer closed"); ws_reader_handler.abort(); ws_writer_handler.abort(); tcp_reader.abort(); },
     };
 
     // One less.
