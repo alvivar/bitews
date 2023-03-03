@@ -1,3 +1,9 @@
+use std::env;
+use std::include_str;
+use std::io;
+use std::net::{SocketAddr, ToSocketAddrs};
+use std::sync::{Arc, Mutex};
+
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::{Html, Response};
 use axum::routing::get;
@@ -6,12 +12,6 @@ use futures::sink::SinkExt;
 use futures::stream::StreamExt;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-
-use std::env;
-use std::include_str;
-use std::io;
-use std::net::{SocketAddr, ToSocketAddrs};
-use std::sync::{Arc, Mutex};
 
 #[macro_use]
 extern crate log;
