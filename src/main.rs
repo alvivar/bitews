@@ -13,6 +13,10 @@ use std::io;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::{Arc, Mutex};
 
+#[macro_use]
+extern crate log;
+extern crate pretty_env_logger;
+
 const BUFFER_SIZE: usize = 1024;
 
 #[derive(Debug)]
@@ -32,14 +36,14 @@ fn string_to_socketaddr(address: &str) -> SocketAddr {
 
 #[tokio::main]
 async fn main() {
-    println!("\nBIT:E WebSocket Proxy\n");
+    info!("\nBIT:E WebSocket Proxy\n");
 
     let server = match env::var("SERVER") {
         Ok(var) => var,
         Err(_) => {
-            println!("Error: The required environmental variable SERVER is missing.");
-            println!("The SERVER variable must contain the address of the server.");
-            println!("BASH i.e: export SERVER=0.0.0.0:1983");
+            info!("Error: The required environmental variable SERVER is missing.");
+            info!("The SERVER variable must contain the address of the server.");
+            info!("BASH i.e: export SERVER=0.0.0.0:1983");
             return;
         }
     };
@@ -47,9 +51,9 @@ async fn main() {
     let proxy = match env::var("PROXY") {
         Ok(var) => var,
         Err(_) => {
-            println!("Error: The required environmental variable PROXY is missing.");
-            println!("The PROXY variable must contain the URI of the BITE server to be proxied.");
-            println!("BASH i.e: export PROXY=0.0.0.0:1984");
+            info!("Error: The required environmental variable PROXY is missing.");
+            info!("The PROXY variable must contain the URI of the BITE server to be proxied.");
+            info!("BASH i.e: export PROXY=0.0.0.0:1984");
             return;
         }
     };
@@ -73,7 +77,7 @@ async fn index() -> Html<&'static str> {
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, state: Arc<Mutex<State>>) -> Response {
-    println!("\n{ws:?}");
+    info!("\n{ws:?}");
     ws.on_upgrade(|ws| start_sockets(ws, state))
 }
 
@@ -94,33 +98,33 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
             match msg {
                 Ok(msg) => match msg {
                     Message::Text(text) => {
-                        println!("\nws -> tcp: {text}");
+                        info!("\nws -> tcp: {text}");
                         tcp_tx.send(Command::Text(text)).unwrap();
                     }
 
                     Message::Binary(binary) => {
-                        println!("\nws -> tcp: Binary");
+                        info!("\nws -> tcp: Binary");
                         tcp_tx.send(Command::Binary(binary)).unwrap();
                     }
 
                     Message::Ping(ping) => {
-                        println!("\nws -> tcp: Ping");
+                        info!("\nws -> tcp: Ping");
                         tcp_tx.send(Command::Binary(ping)).unwrap();
                     }
 
                     Message::Pong(pong) => {
-                        println!("\nws -> tcp: Pong");
+                        info!("\nws -> tcp: Pong");
                         tcp_tx.send(Command::Binary(pong)).unwrap();
                     }
 
                     Message::Close(_) => {
-                        println!("\nws closed");
+                        info!("\nws closed");
                         break;
                     }
                 },
 
                 Err(err) => {
-                    println!("\nws closed with error: {err}");
+                    info!("\nws closed with error: {err}");
                     break;
                 }
             }
@@ -133,12 +137,12 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
         while let Some(cmd) = ws_rx.recv().await {
             match cmd {
                 Command::Text(text) => {
-                    println!("\nws write (text): {text}");
+                    info!("\nws write (text): {text}");
                     ws_writer.send(Message::Text(text)).await.unwrap();
                 }
 
                 Command::Binary(binary) => {
-                    println!("\nws write (binary): {binary:?}");
+                    info!("\nws write (binary): {binary:?}");
                     ws_writer.send(Message::Binary(binary)).await.unwrap();
                 }
             }
@@ -173,7 +177,7 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
                 Ok(n) => {
                     let received = &buffer[..n];
                     ws_tx.send(Command::Binary(received.to_vec())).unwrap();
-                    println!("\ntcp -> ws: {received:?}");
+                    info!("\ntcp -> ws: {received:?}");
                 }
 
                 // Would block "errors" are the OS's way of saying that the
@@ -196,12 +200,12 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
         while let Some(cmd) = tcp_rx.recv().await {
             let data = match cmd {
                 Command::Text(text) => {
-                    println!("\ntcp try_write (text): {text}");
+                    info!("\ntcp try_write (text): {text}");
                     text.into()
                 }
 
                 Command::Binary(binary) => {
-                    println!("\ntcp try_write (binary): {binary:?}");
+                    info!("\ntcp try_write (binary): {binary:?}");
                     binary
                 }
             };
@@ -239,10 +243,10 @@ async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
     // Everyone fails together.
 
     tokio::select! {
-        _ = (&mut ws_reader_handler) => { println!("\nws_reader closed"); ws_writer_handler.abort(); tcp_reader.abort(); tcp_writer.abort(); },
-        _ = (&mut ws_writer_handler) => { println!("\nws_writer closed"); ws_reader_handler.abort(); tcp_reader.abort(); tcp_writer.abort(); },
-        _ = (&mut tcp_reader) => { println!("\ntcp_reader closed"); ws_reader_handler.abort(); ws_writer_handler.abort(); tcp_writer.abort(); },
-        _ = (&mut tcp_writer) => { println!("\ntcp_writer closed"); ws_reader_handler.abort(); ws_writer_handler.abort(); tcp_reader.abort(); },
+        _ = (&mut ws_reader_handler) => { info!("\nws_reader closed"); ws_writer_handler.abort(); tcp_reader.abort(); tcp_writer.abort(); },
+        _ = (&mut ws_writer_handler) => { info!("\nws_writer closed"); ws_reader_handler.abort(); tcp_reader.abort(); tcp_writer.abort(); },
+        _ = (&mut tcp_reader) => { info!("\ntcp_reader closed"); ws_reader_handler.abort(); ws_writer_handler.abort(); tcp_writer.abort(); },
+        _ = (&mut tcp_writer) => { info!("\ntcp_writer closed"); ws_reader_handler.abort(); ws_writer_handler.abort(); tcp_reader.abort(); },
     };
 
     // One less.

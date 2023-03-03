@@ -10,9 +10,10 @@ services:
         environment:
             - SERVER=0.0.0.0:1983
             - PROXY=bite:1984
+            - RUST_LOG=info
         restart: on-failure
 
-    # You'll need a Bite server somewhere.
+    # You'll need a BITE server somewhere.
     # bite:
     #     container_name: bite
     #     build: ../bite/
