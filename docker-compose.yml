@@ -1,24 +1,21 @@
-version: '3.3'
+version: '3.8'
 services:
     bitews:
         container_name: bitews
-        build: ./
+        build:
+            context: ./
+            dockerfile: Dockerfile
         ports:
             - '1983:1983'
         volumes:
-            - ./data:/data
+            - type: bind
+              source: ./data
+              target: /data
         environment:
             - SERVER=0.0.0.0:1983
-            - PROXY=bite:1984
+            - PROXY=bite:1984 # You need a BITE server somewhere to proxy to.
             - RUST_LOG=info
-        restart: on-failure
+        restart: unless-stopped
 
-    # You'll need a BITE server somewhere.
     # bite:
-    #     container_name: bite
-    #     build: ../bite/
-    #     ports:
-    #         - '1984:1984'
-    #     volumes:
-    #         - ./data:/data
-    #     restart: on-failure
+    #   [...]
