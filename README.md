@@ -3,7 +3,7 @@
 Simple proxy between a WebSocket and a TCP server. I made it to make
 [Bite](https://github.com/alvivar/bite) compatible with the web.
 
-## Environment variables
+## Environment variables config
 
 The server where the WebSocket server will be served (you will connect here):
 
@@ -26,6 +26,6 @@ locally, right now it doesn't work because **BITE** has a custom protocol.
 ## Docker
 
 Just run **docker-compose up -d --build** and it should work, as long you have
-configured the PROXY variable (the BITE server you will proxy to).
+configured the PROXY variable to a running BITE server somewhere.
 
 Check out [**docker-compose.yml**](docker-compose.yml) for more details.
