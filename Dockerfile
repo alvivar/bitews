@@ -1,14 +1,15 @@
 FROM rust:1.72.0 as build-env
 
 WORKDIR /app
-RUN USER=root cargo new --bin bitews
+RUN cargo new --bin bitews
 COPY ./Cargo.toml ./Cargo.lock ./bitews/
+
 WORKDIR /app/bitews
 RUN cargo build --release
-RUN rm src/*.rs
-
-ADD . .
+RUN rm ./src/*.rs
 RUN rm ./target/release/deps/bitews*
+
+COPY ./src ./src
 RUN cargo build --release
 
 FROM gcr.io/distroless/cc-debian12
