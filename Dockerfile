@@ -10,6 +10,7 @@ RUN rm ./src/*.rs
 RUN rm ./target/release/deps/bitews*
 
 COPY ./src ./src
+COPY ./web ./web
 RUN cargo build --release
 
 FROM gcr.io/distroless/cc-debian12
