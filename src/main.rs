@@ -75,7 +75,7 @@ async fn main() {
 }
 
 async fn index() -> Html<&'static str> {
-    Html(include_str!("../web/bite-client.html"))
+    Html(include_str!("../web/client.html"))
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, state: Arc<Mutex<State>>) -> Response {
