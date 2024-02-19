@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>chatserver</title>
+
+        <!-- Production  -->
+        <link href="style.css" rel="stylesheet" />
+
+        <!-- It may be pratical to use this v during development. -->
+        <!-- <script src="https://cdn.tailwindcss.com"></script> -->
+
+        <script type="module" src="./js/main.js"></script>
+        <script type="module" src="./js/pubsub.js"></script>
+        <script type="module" src="./js/socket.js"></script>
+        <script type="module" src="./js/ui.js"></script>
+        <script type="module" src="./js/alert.js"></script>
+    </head>
+
+    <body class="flex justify-center bg-slate-200">
+        <div class="w-full max-w-screen-md p-4">
+            <div class="grid grid-cols-2 gap-1">
+                <textarea
+                    class="col-span-1 text-slate-600 border-2 p-2 outline-none rounded-lg"
+                    type="text"
+                    id="preprompt"
+                    placeholder="Pre prompt..."
+                ></textarea>
+
+                <textarea
+                    class="col-span-1 text-slate-600 border-2 p-2 outline-none rounded-lg"
+                    type="text"
+                    id="input"
+                    placeholder="Message..."
+                ></textarea>
+            </div>
+            <div class="mt-2">
+                <button
+                    class="w-full text-slate-50 font-bold border bg-blue-300 hover:bg-blue-400 px-4 py-2 rounded-lg"
+                    id="send"
+                >
+                    CHAT
+                </button>
+            </div>
+            <div class="text-slate-800" id="messages">
+                <p
+                    id="error"
+                    class="bg-orange-200 p-4 my-2 whitespace-pre-line rounded-lg"
+                ></p>
+            </div>
+        </div>
+
+        <div id="alert" class="absolute bg-orange-200 p-4 rounded-lg">
+            &nbsp;
+        </div>
+    </body>
+</html>

@@ -1,257 +1,364 @@
-use std::env;
-use std::include_str;
-use std::io;
-use std::net::{SocketAddr, ToSocketAddrs};
-use std::sync::{Arc, Mutex};
+use async_openai::{
+    config::OpenAIConfig,
+    types::{ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs, Role},
+    Client,
+};
+use fastwebsockets::{
+    upgrade::{self, upgrade},
+    FragmentCollector, OpCode, WebSocketError,
+};
+use hyper::{
+    body::{Bytes, Incoming},
+    server::conn::http1,
+    service::service_fn,
+    Request, Response,
+};
+use tokio::{
+    net::TcpListener,
+    sync::{mpsc, RwLock},
+};
 
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::response::{Html, Response};
-use axum::routing::get;
-use axum::Router;
-use futures::sink::SinkExt;
-use futures::stream::StreamExt;
-use tokio::net::TcpStream;
-use tokio::sync::mpsc;
+use anyhow::Result;
+use futures::StreamExt;
+use http_body_util::Full;
 
-#[macro_use]
-extern crate log;
-extern crate pretty_env_logger;
+use std::{
+    collections::HashMap,
+    env, fs,
+    io::{self},
+    net::SocketAddr,
+    sync::Arc,
+};
 
-const BUFFER_SIZE: usize = 1024;
+mod data;
+use data::{Message, SharedState, State};
 
-#[derive(Debug)]
-enum Command {
-    Text(String),
-    Binary(Vec<u8>),
-}
+mod filemap; // Static files are served from here.
+use filemap::{FileData, FileMap};
 
-struct State {
-    count: usize,
-    proxy: SocketAddr,
-}
+const SERVER_ID: &str = "//server"; // This is used to identify server messages.
 
-fn string_to_socketaddr(address: &str) -> SocketAddr {
-    address.to_socket_addrs().unwrap().next().unwrap()
-}
+async fn request_handler(
+    mut request: Request<Incoming>,
+    address: SocketAddr,
+    state: SharedState,
+    static_files: Arc<HashMap<String, FileMap>>,
+) -> Result<Response<Full<Bytes>>, WebSocketError> {
+    let mut uri = request.uri().path();
 
-#[tokio::main]
-async fn main() {
-    pretty_env_logger::init();
-
-    info!("BIT:E WebSocket Proxy");
-
-    let server = match env::var("SERVER") {
-        Ok(var) => var,
-        Err(_) => {
-            info!("Error: The required environmental variable SERVER is missing.");
-            info!("The SERVER variable must contain the address of the server.");
-            info!("BASH i.e: export SERVER=0.0.0.0:1983");
-            return;
-        }
-    };
-
-    let proxy = match env::var("PROXY") {
-        Ok(var) => var,
-        Err(_) => {
-            info!("Error: The required environmental variable PROXY is missing.");
-            info!("The PROXY variable must contain the URI of the BITE server to be proxied.");
-            info!("BASH i.e: export PROXY=0.0.0.0:1984");
-            return;
-        }
-    };
-
-    let server = string_to_socketaddr(&server);
-    let proxy = string_to_socketaddr(&proxy);
-    let shared = Arc::new(Mutex::new(State { count: 0, proxy }));
-
-    let app: Router = Router::new()
-        .route("/", get(index))
-        .route("/ws", get(move |ws| ws_handler(ws, Arc::clone(&shared))));
-
-    axum::Server::bind(&server)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
-}
-
-async fn index() -> Html<&'static str> {
-    Html(include_str!("../web/client.html"))
-}
-
-async fn ws_handler(ws: WebSocketUpgrade, state: Arc<Mutex<State>>) -> Response {
-    info!("{ws:?}");
-    ws.on_upgrade(|ws| start_sockets(ws, state))
-}
-
-async fn start_sockets(socket: WebSocket, state: Arc<Mutex<State>>) {
-    {
-        state.lock().unwrap().count += 1;
+    if uri == "/" {
+        uri = "/index.html";
     }
 
-    let (ws_tx, mut ws_rx) = mpsc::unbounded_channel::<Command>();
-    let (tcp_tx, mut tcp_rx) = mpsc::unbounded_channel::<Command>();
+    match uri {
+        "/ws" => {
+            let (fut_response, fut) = upgrade(&mut request)?;
 
-    // WebSocket reader
+            tokio::spawn(async move {
+                handle_ws(fut, address, &state).await.unwrap();
 
-    let (mut ws_writer, mut ws_reader) = socket.split();
+                {
+                    let mut state = state.write().await;
+                    state.clients.remove(&address);
+                }
+            });
 
-    let mut ws_reader_handler = tokio::spawn(async move {
-        while let Some(msg) = ws_reader.next().await {
-            match msg {
-                Ok(msg) => match msg {
-                    Message::Text(text) => {
-                        info!("ws -> tcp: {text}");
-                        tcp_tx.send(Command::Text(text)).unwrap();
-                    }
+            let mut response = Response::builder()
+                .status(fut_response.status())
+                .body(Full::default())
+                .unwrap();
 
-                    Message::Binary(binary) => {
-                        info!("ws -> tcp: Binary");
-                        tcp_tx.send(Command::Binary(binary)).unwrap();
-                    }
+            response.headers_mut().clone_from(fut_response.headers());
 
-                    Message::Ping(ping) => {
-                        info!("ws -> tcp: Ping");
-                        tcp_tx.send(Command::Binary(ping)).unwrap();
-                    }
+            Ok(response)
+        }
 
-                    Message::Pong(pong) => {
-                        info!("ws -> tcp: Pong");
-                        tcp_tx.send(Command::Binary(pong)).unwrap();
-                    }
+        _ => {
+            if let Some(map) = static_files.get(uri) {
+                let response = serve_file(&map.data, map.mime_type).await.unwrap();
 
-                    Message::Close(_) => {
-                        info!("ws closed");
+                Ok(response)
+            } else {
+                let response = Response::builder()
+                    .status(404)
+                    .body(Full::from("Not found (404)"))
+                    .unwrap();
+
+                Ok(response)
+            }
+        }
+    }
+}
+
+async fn handle_ws(
+    fut: upgrade::UpgradeFut,
+    address: SocketAddr,
+    state: &SharedState,
+) -> Result<(), WebSocketError> {
+    let mut ws = FragmentCollector::new(fut.await.unwrap());
+
+    let (tx, mut rx) = mpsc::channel(128);
+
+    {
+        let mut state = state.write().await;
+        state.clients.insert(address, tx);
+    }
+
+    println!("{} New", address);
+
+    let (openai_ws_tx, mut openai_ws_rx) = mpsc::channel::<String>(128);
+    let client = Client::new();
+
+    // Session data.
+
+    let prompts: HashMap<SocketAddr, Vec<String>> = HashMap::new();
+    let prompts = Arc::new(RwLock::new(prompts));
+    let current_model: Arc<RwLock<String>> = Arc::new(RwLock::new("gpt-3.5-turbo-1106".into()));
+
+    loop {
+        tokio::select! {
+            frame = ws.read_frame() => {
+                let frame = frame?;
+                match frame.opcode {
+                    OpCode::Close => {
+                        println!("{} Closed", address);
                         break;
                     }
-                },
 
-                Err(err) => {
-                    info!("ws closed with error: {err}");
+                    OpCode::Text => {
+                        let prompt = String::from_utf8(frame.payload.to_vec()).unwrap();
+                        store_prompt(address, prompt.clone(), &prompts).await;
+
+                        ws.write_frame(Message::Text(prompt.clone()).as_frame()).await?;
+                        ws.write_frame(Message::Text("\0".into()).as_frame()).await?;
+
+                        // Commands.
+
+                        let commands = extract_commands(&prompt);
+
+                        let mut has_model = false;
+                        let model = match commands.get("model") {
+                            Some(to_model) =>
+                            {
+                                {
+                                    let mut model = current_model.write().await;
+                                    *model = to_model.clone();
+                                }
+
+                                ws.write_frame(Message::Text(format!("{} Alert: Model set to {}.", SERVER_ID, to_model)).as_frame()).await?;
+                                ws.write_frame(Message::Text("\0".into()).as_frame()).await?;
+
+                                has_model = true;
+                                to_model.clone()
+                            },
+
+                            None => {
+                                current_model.read().await.clone()
+                            },
+                        };
+
+                        if commands.get("info").is_some() {
+                            ws.write_frame(Message::Text(format!("{} Info: Using {} model.", SERVER_ID, model)).as_frame()).await?;
+                            ws.write_frame(Message::Text("\0".into()).as_frame()).await?;
+                            continue;
+                        }
+                        else if !has_model
+                        {
+                            ws.write_frame(Message::Text(format!("{} Info: {}", SERVER_ID, model)).as_frame()).await?;
+                            ws.write_frame(Message::Text("\0".into()).as_frame()).await?;
+                        };
+
+                        tokio::spawn(process_openai_request(
+                            prompt,
+                            openai_ws_tx.clone(),
+                            client.clone(),
+                            model,
+                        ));
+                    }
+
+                    _ => {}
+                }
+            },
+
+            message = openai_ws_rx.recv() => {
+                if let Some(message) = message {
+                    let message = Message::Text(message);
+                    ws.write_frame(message.as_frame()).await?;
+                } else {
+                    break;
+                }
+            },
+
+            frame = rx.recv() => {
+                if let Some(frame) = frame {
+                    ws.write_frame(frame.as_frame()).await?;
+                } else {
                     break;
                 }
             }
         }
-    });
+    }
 
-    // WebSocket writer
+    Ok(())
+}
 
-    let mut ws_writer_handler = tokio::spawn(async move {
-        while let Some(cmd) = ws_rx.recv().await {
-            match cmd {
-                Command::Text(text) => {
-                    info!("ws write (text): {text}");
-                    ws_writer.send(Message::Text(text)).await.unwrap();
-                }
+async fn process_openai_request(
+    prompt: String,
+    openai_to_ws_tx: mpsc::Sender<String>,
+    client: Client<OpenAIConfig>,
+    model: String,
+) -> anyhow::Result<()> {
+    let request = CreateChatCompletionRequestArgs::default()
+        .model(model)
+        .max_tokens(1024u16)
+        .messages([ChatCompletionRequestUserMessageArgs::default()
+            .content(prompt)
+            .role(Role::User)
+            .build()?
+            .into()])
+        .build()?;
 
-                Command::Binary(binary) => {
-                    info!("ws write (binary): {binary:?}");
-                    ws_writer.send(Message::Binary(binary)).await.unwrap();
+    let mut stream = client.chat().create_stream(request).await?;
+    while let Some(result) = stream.next().await {
+        match result {
+            Ok(response) => {
+                for chat_choice in response.choices.iter() {
+                    if let Some(ref content) = chat_choice.delta.content {
+                        openai_to_ws_tx.send(content.clone()).await.unwrap();
+                    }
                 }
             }
+
+            Err(err) => {
+                eprintln!("OpenAI Error: {}", err);
+
+                openai_to_ws_tx
+                    .send(format!("{} OpenAI Error: {}", SERVER_ID, err))
+                    .await
+                    .unwrap();
+            }
         }
-    });
+    }
 
-    // BITE reader
+    // This means that the transmission is over.
+    openai_to_ws_tx.send("\0".into()).await.unwrap();
 
-    let addr = state.lock().unwrap().proxy;
-    let (tcp_read, tcp_write) = match TcpStream::connect(addr).await {
-        Ok(tcp) => tcp.into_split(),
-        Err(_) => return,
+    Ok(())
+}
+
+async fn serve_file(data: &FileData, mime_type: &'static str) -> Result<Response<Full<Bytes>>> {
+    let body = match data {
+        FileData::Bytes(bytes) => Bytes::from(bytes.to_vec()),
     };
 
-    let mut tcp_reader = tokio::spawn(async move {
-        let mut buffer = vec![0; BUFFER_SIZE];
+    let response = Response::builder()
+        .status(200)
+        .header("Content-Type", mime_type)
+        .body(Full::from(body))?;
 
-        loop {
-            tcp_read.readable().await.unwrap();
+    Ok(response)
+}
 
-            if buffer.capacity() == buffer.len() {
-                buffer.reserve(BUFFER_SIZE);
-            }
+async fn store_prompt(
+    address: SocketAddr,
+    prompt: String,
+    prompts: &Arc<RwLock<HashMap<SocketAddr, Vec<String>>>>,
+) {
+    let mut prompts = prompts.write().await;
+    let prompts = prompts.entry(address).or_insert(Vec::new());
+    prompts.push(prompt);
+}
 
-            match tcp_read.try_read(&mut buffer) {
-                Ok(0) => {
-                    // Reading 0 bytes means the other side has closed the
-                    // connection or is done writing, then so are we.
-                    return;
-                }
+async fn get_prompts(
+    address: SocketAddr,
+    prompts: Arc<RwLock<HashMap<SocketAddr, Vec<String>>>>,
+    num_prompts: usize,
+) -> Vec<String> {
+    let prompts = prompts.read().await;
 
-                Ok(n) => {
-                    let received = &buffer[..n];
-                    ws_tx.send(Command::Binary(received.to_vec())).unwrap();
-                    info!("tcp -> ws: {received:?}");
-                }
+    if let Some(prompt_list) = prompts.get(&address) {
+        let len = prompt_list.len();
 
-                // Would block "errors" are the OS's way of saying that the
-                // connection is not actually ready to perform this I/O
-                // operation.
-                Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => continue,
-
-                // Got interrupted, we'll try again.
-                Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
-
-                // Other errors we'll consider fatal.
-                Err(_) => return,
-            }
+        // If there are fewer prompts than requested, return all of them.
+        if len <= num_prompts {
+            return prompt_list.clone();
         }
-    });
 
-    // BITE writer
+        // Otherwise, return the last `num_prompts`.
+        return prompt_list[len - num_prompts..].to_vec();
+    }
 
-    let mut tcp_writer = tokio::spawn(async move {
-        while let Some(cmd) = tcp_rx.recv().await {
-            let data = match cmd {
-                Command::Text(text) => {
-                    info!("tcp try_write (text): {text}");
-                    text.into()
-                }
+    // Return an empty Vec if no prompts are found for the address.
+    Vec::new()
+}
 
-                Command::Binary(binary) => {
-                    info!("tcp try_write (binary): {binary:?}");
-                    binary
-                }
-            };
+// All "!command value" from a string are extracted and returned as a HashMap.
+fn extract_commands(input: &str) -> HashMap<String, String> {
+    let mut commands = HashMap::new();
+    let mut iter = input.split_whitespace().peekable();
 
-            tcp_write.writable().await.unwrap();
-
-            let mut written = 0;
-            while written < data.len() {
-                match tcp_write.try_write(&data[written..]) {
-                    Ok(0) => {
-                        // Writing 0 bytes means the other side has closed the
-                        // connection or is done writing, then so are we.
-                        return;
-                    }
-
-                    Ok(n) => {
-                        written += n;
-                    }
-
-                    // Would block "errors" are the OS's way of saying that the
-                    // connection is not actually ready to perform this I/O
-                    // operation.
-                    Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => return,
-
-                    // Got interrupted, we'll try again.
-                    Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
-
-                    // Other errors we'll consider fatal.
-                    Err(_) => return,
-                }
-            }
+    while let Some(word) = iter.next() {
+        if word.starts_with('!') && word.len() > 1 {
+            let command = &word[1..];
+            let value = iter.next().unwrap_or("").to_string();
+            commands.insert(command.to_string(), value);
         }
-    });
+    }
 
-    // Everyone fails together.
+    commands
+}
 
-    tokio::select! {
-        _ = (&mut ws_reader_handler) => { info!("ws_reader closed"); ws_writer_handler.abort(); tcp_reader.abort(); tcp_writer.abort(); },
-        _ = (&mut ws_writer_handler) => { info!("ws_writer closed"); ws_reader_handler.abort(); tcp_reader.abort(); tcp_writer.abort(); },
-        _ = (&mut tcp_reader) => { info!("tcp_reader closed"); ws_reader_handler.abort(); ws_writer_handler.abort(); tcp_writer.abort(); },
-        _ = (&mut tcp_writer) => { info!("tcp_writer closed"); ws_reader_handler.abort(); ws_writer_handler.abort(); tcp_reader.abort(); },
-    };
+fn set_environment_from_file(file_path: &str) -> io::Result<()> {
+    let contents = fs::read_to_string(file_path)?;
 
-    // One less.
+    for line in contents.lines() {
+        let parts: Vec<&str> = line.splitn(2, '=').collect();
+        if parts.len() == 2 {
+            let key = parts[0].trim();
+            let value = parts[1].trim();
+            env::set_var(key, value);
+        } else {
+            eprintln!("set_environment_from_file Warning: Skipping line: {}", line);
+        }
+    }
 
-    state.lock().unwrap().count -= 1;
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    set_environment_from_file(".env")?;
+
+    let address = SocketAddr::from(([127, 0, 0, 1], 8080));
+    let listener = TcpListener::bind(address).await?;
+
+    println!("{} Listening", address);
+
+    let state = Arc::new(RwLock::new(State {
+        clients: HashMap::new(),
+    }));
+
+    let static_files = FileMap::static_files();
+
+    loop {
+        let (stream, address) = listener.accept().await?;
+        let state = state.clone();
+        let static_files = static_files.clone();
+
+        tokio::task::spawn(async move {
+            let io = hyper_util::rt::TokioIo::new(stream);
+            let connection = http1::Builder::new()
+                .serve_connection(
+                    io,
+                    service_fn(move |request| {
+                        request_handler(request, address, state.clone(), static_files.clone())
+                    }),
+                )
+                .with_upgrades();
+
+            if let Err(err) = connection.await {
+                eprintln!("Connection Error: {:?}", err);
+            }
+        });
+    }
 }
