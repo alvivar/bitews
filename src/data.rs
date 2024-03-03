@@ -1,27 +1,15 @@
 use fastwebsockets::Frame;
-use tokio::sync::{mpsc::Sender, RwLock};
+use std::{net::SocketAddr, sync::Arc};
+use tokio::sync::RwLock;
 
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
-
-pub type Tx = Sender<Message>;
 pub type SharedState = Arc<RwLock<State>>;
 
 pub struct State {
-    pub clients: HashMap<SocketAddr, Tx>,
+    pub clients: Vec<SocketAddr>,
 }
 
-impl State {
-    pub async fn broadcast(&self, sender: &SocketAddr, msg: Message) {
-        for (addr, tx) in self.clients.iter() {
-            if addr != sender {
-                tx.send(msg.clone()).await.unwrap();
-            }
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
 #[allow(dead_code)]
+#[derive(Clone, Debug)]
 pub enum Message {
     Text(String),
     Binary(Vec<u8>),
