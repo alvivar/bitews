@@ -1,11 +1,12 @@
 use fastwebsockets::Frame;
-use std::{net::SocketAddr, sync::Arc};
+use std::{collections::HashSet, net::SocketAddr, sync::Arc};
 use tokio::sync::RwLock;
 
 pub type SharedState = Arc<RwLock<State>>;
 
 pub struct State {
-    pub clients: Vec<SocketAddr>,
+    pub connected: HashSet<SocketAddr>,
+    pub disconnected: HashSet<SocketAddr>,
 }
 
 #[allow(dead_code)]
