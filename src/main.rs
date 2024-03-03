@@ -128,8 +128,8 @@ async fn handle_ws(
 
             bite_result = bite_reader(&mut bite_read, &bite_tx) => {
                 if let Err(err) = bite_result {
-                    eprintln!("{} BITE Read Error: {:?}", address, err);
-                    break;
+                    eprintln!("{} BITE Read Error: {}", address, err);
+                    return Err(ws_error(&err.to_string()));
                 }
             },
 
@@ -138,7 +138,9 @@ async fn handle_ws(
                     let message = Message::Binary(message);
                     ws.write_frame(message.as_frame()).await?;
                 } else {
-                    break;
+                    let err = "BITE Receiver Error";
+                    eprintln!("{} {}.", address, err);
+                    return Err(ws_error(err));
                 }
             },
 
@@ -155,11 +157,11 @@ async fn bite_reader(reader: &mut OwnedReadHalf, tx: &mpsc::Sender<Vec<u8>>) -> 
         let n = reader.read(&mut buffer).await?;
 
         if n == 0 {
-            return Err(io::Error::new(io::ErrorKind::Other, "End of file."));
+            return Err(io_error("End of file"));
         }
 
         if tx.send(buffer[..n].to_vec()).await.is_err() {
-            return Err(io::Error::new(io::ErrorKind::Other, "Send error."));
+            return Err(io_error("Send error"));
         }
     }
 }
@@ -175,6 +177,14 @@ async fn serve_file(data: &FileData, mime_type: &'static str) -> Result<Response
         .body(Full::from(body))?;
 
     Ok(response)
+}
+
+fn ws_error(err: &str) -> WebSocketError {
+    WebSocketError::IoError(io::Error::other(err))
+}
+
+fn io_error(err: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::Other, err)
 }
 
 #[tokio::main]
