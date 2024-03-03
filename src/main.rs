@@ -149,16 +149,16 @@ async fn handle_ws(
 }
 
 async fn bite_reader(reader: &mut OwnedReadHalf, tx: &mpsc::Sender<Vec<u8>>) -> io::Result<()> {
-    let mut buf = [0u8; 4096];
+    let mut buffer = [0u8; 4096];
 
     loop {
-        let n = reader.read(&mut buf).await?;
+        let n = reader.read(&mut buffer).await?;
 
         if n == 0 {
             return Err(io::Error::new(io::ErrorKind::Other, "End of file."));
         }
 
-        if tx.send(buf[..n].to_vec()).await.is_err() {
+        if tx.send(buffer[..n].to_vec()).await.is_err() {
             return Err(io::Error::new(io::ErrorKind::Other, "Send error."));
         }
     }
