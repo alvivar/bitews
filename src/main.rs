@@ -166,7 +166,7 @@ async fn bite_reader(reader: &mut OwnedReadHalf, tx: &mpsc::Sender<Vec<u8>>) -> 
 
 async fn serve_file(data: &FileData, mime_type: &'static str) -> Result<Response<Full<Bytes>>> {
     let body = match data {
-        FileData::Bytes(bytes) => Bytes::from(bytes.clone()),
+        FileData::Bytes(bytes) => bytes.clone(),
     };
 
     let response = Response::builder()
