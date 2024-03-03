@@ -1,4 +1,5 @@
 .env
 /build
+/data
 /target
 /web/node_modules
