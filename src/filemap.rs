@@ -5,8 +5,10 @@ use std::{
     sync::Arc,
 };
 
+use hyper::body::Bytes;
+
 pub enum FileData {
-    Bytes(Vec<u8>),
+    Bytes(Bytes),
 }
 
 pub struct FileMap {
@@ -19,7 +21,7 @@ impl FileMap {
         let path = Path::new(path).join(file);
         let data = fs::read(path)?;
 
-        Ok(FileData::Bytes(data))
+        Ok(FileData::Bytes(data.into()))
     }
 
     fn get_mime_type(path: &str) -> &'static str {

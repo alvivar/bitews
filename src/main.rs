@@ -16,12 +16,17 @@ use tokio::{
     sync::{mpsc, RwLock},
 };
 
-use std::{collections::HashMap, io, net::SocketAddr, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    io,
+    net::SocketAddr,
+    sync::Arc,
+};
 
 mod data;
 use data::{Message, SharedState, State};
 
-mod filemap; // Static files are served from here.
+mod filemap;
 use filemap::{FileData, FileMap};
 
 async fn request_handler(
@@ -41,11 +46,12 @@ async fn request_handler(
             let (fut_response, fut) = upgrade(&mut request)?;
 
             tokio::spawn(async move {
-                handle_ws(fut, address, &state).await.unwrap();
-
-                {
+                if let Err(err) = handle_ws(fut, address, &state).await {
+                    eprintln!("{} WebSocket Error: {}", address, err);
+                } else {
                     let mut state = state.write().await;
-                    state.clients.retain(|x| *x != address);
+                    state.connected.remove(&address);
+                    state.disconnected.insert(address);
                 }
             });
 
@@ -85,13 +91,14 @@ async fn handle_ws(
 
     {
         let mut state = state.write().await;
-        state.clients.push(address);
+        state.connected.insert(address);
+        state.disconnected.remove(&address);
     }
 
     println!("{} New", address);
 
     // BITE
-    let bite_stream = TcpStream::connect(address).await?;
+    let bite_stream = TcpStream::connect("127.0.0.1:1984").await?;
     let (mut bite_read, mut bite_write) = bite_stream.into_split();
     let (bite_tx, mut bite_rx) = mpsc::channel::<Vec<u8>>(128);
 
@@ -159,7 +166,7 @@ async fn bite_reader(reader: &mut OwnedReadHalf, tx: &mpsc::Sender<Vec<u8>>) -> 
 
 async fn serve_file(data: &FileData, mime_type: &'static str) -> Result<Response<Full<Bytes>>> {
     let body = match data {
-        FileData::Bytes(bytes) => Bytes::from(bytes.to_vec()),
+        FileData::Bytes(bytes) => Bytes::from(bytes.clone()),
     };
 
     let response = Response::builder()
@@ -178,7 +185,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("{} Listening", address);
 
     let state = Arc::new(RwLock::new(State {
-        clients: Vec::new(),
+        connected: HashSet::new(),
+        disconnected: HashSet::new(),
     }));
 
     let static_files = FileMap::static_files();
