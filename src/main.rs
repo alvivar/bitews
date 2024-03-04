@@ -18,8 +18,8 @@ use tokio::{
 
 use std::{
     collections::{HashMap, HashSet},
-    io,
-    net::SocketAddr,
+    env, io,
+    net::{SocketAddr, ToSocketAddrs},
     sync::Arc,
 };
 
@@ -32,6 +32,7 @@ use filemap::{FileData, FileMap};
 async fn request_handler(
     mut request: Request<Incoming>,
     address: SocketAddr,
+    proxy: SocketAddr,
     state: SharedState,
     static_files: Arc<HashMap<String, FileMap>>,
 ) -> Result<Response<Full<Bytes>>, WebSocketError> {
@@ -46,7 +47,7 @@ async fn request_handler(
             let (fut_response, fut) = upgrade(&mut request)?;
 
             tokio::spawn(async move {
-                if let Err(err) = handle_ws(fut, address, &state).await {
+                if let Err(err) = handle_ws(fut, address, proxy, &state).await {
                     eprintln!("{} WebSocket Error: {}", address, err);
                 } else {
                     let mut state = state.write().await;
@@ -85,6 +86,7 @@ async fn request_handler(
 async fn handle_ws(
     fut: upgrade::UpgradeFut,
     address: SocketAddr,
+    proxy: SocketAddr,
     state: &SharedState,
 ) -> Result<(), WebSocketError> {
     let mut ws = FragmentCollector::new(fut.await.unwrap());
@@ -98,7 +100,7 @@ async fn handle_ws(
     println!("{} New", address);
 
     // BITE
-    let bite_stream = TcpStream::connect("127.0.0.1:1984").await?;
+    let bite_stream = TcpStream::connect(proxy).await?;
     let (mut bite_read, mut bite_write) = bite_stream.into_split();
     let (bite_tx, mut bite_rx) = mpsc::channel::<Vec<u8>>(128);
 
@@ -189,9 +191,15 @@ fn io_error(err: &str) -> io::Error {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let address = SocketAddr::from(([127, 0, 0, 1], 1983));
-    let listener = TcpListener::bind(address).await?;
+    let server_addr = env::var("SERVER").unwrap_or_else(|_| "0.0.0.0:1984".to_string());
+    let server_addr = server_addr.to_socket_addrs()?.next().unwrap();
+    let proxy_addr = env::var("PROXY").unwrap_or_else(|_| "0.0.0.0:1983".to_string());
+    let proxy_addr = proxy_addr.to_socket_addrs()?.next().unwrap();
 
+    let address = SocketAddr::from(server_addr);
+    let proxy = SocketAddr::from(proxy_addr);
+
+    let listener = TcpListener::bind(address).await?;
     println!("{} Listening", address);
 
     let state = Arc::new(RwLock::new(State {
@@ -212,7 +220,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .serve_connection(
                     io,
                     service_fn(move |request| {
-                        request_handler(request, address, state.clone(), static_files.clone())
+                        request_handler(
+                            request,
+                            address,
+                            proxy,
+                            state.clone(),
+                            static_files.clone(),
+                        )
                     }),
                 )
                 .with_upgrades();
