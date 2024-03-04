@@ -15,4 +15,5 @@ RUN cargo build --release
 
 FROM gcr.io/distroless/cc-debian12
 COPY --from=build-env /app/bitews/target/release/bitews /
+COPY --from=build-env /app/bitews/web /web
 CMD ["./bitews"]
