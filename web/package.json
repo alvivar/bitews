@@ -1,9 +1,9 @@
 {
-  "scripts": {
-    "start": "cargo run --release",
-    "build": "tailwindcss -o style.css --minify"
-  },
-  "devDependencies": {
-    "tailwindcss": "^3.3.4"
-  }
+    "scripts": {
+        "start": "cargo run --release",
+        "build": "tailwindcss -o style.css --minify"
+    },
+    "devDependencies": {
+        "tailwindcss": "^3.4.1"
+    }
 }
