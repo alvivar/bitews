@@ -192,15 +192,13 @@ fn io_error(err: &str) -> io::Error {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let server_addr = env::var("SERVER").unwrap_or_else(|_| "0.0.0.0:1984".to_string());
-    let server_addr = server_addr.to_socket_addrs()?.next().unwrap();
     let proxy_addr = env::var("PROXY").unwrap_or_else(|_| "0.0.0.0:1983".to_string());
-    let proxy_addr = proxy_addr.to_socket_addrs()?.next().unwrap();
 
-    let address = SocketAddr::from(server_addr);
-    let proxy = SocketAddr::from(proxy_addr);
+    let server = server_addr.to_socket_addrs()?.next().unwrap();
+    let proxy = proxy_addr.to_socket_addrs()?.next().unwrap();
 
-    let listener = TcpListener::bind(address).await?;
-    println!("{} Listening", address);
+    let listener = TcpListener::bind(server).await?;
+    println!("{} Listening", server);
 
     let state = Arc::new(RwLock::new(State {
         connected: HashSet::new(),
