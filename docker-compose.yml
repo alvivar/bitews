@@ -2,20 +2,25 @@ version: '3.8'
 services:
     bitews:
         container_name: bitews
-        build:
-            context: ./
-            dockerfile: Dockerfile
+        build: .
         ports:
             - '1983:1983'
         volumes:
-            - type: bind
-              source: ./data
-              target: /data
+            - ./data:/data
         environment:
             - SERVER=0.0.0.0:1983
-            - PROXY=bite:1984 # You need a BITE server somewhere to proxy.
+            - PROXY=bite:1984
             - RUST_LOG=info
         restart: unless-stopped
 
-    # bite:
-    # [...]
+    bite:
+        container_name: bite
+        build: https://github.com/alvivar/bite.git
+        ports:
+            - '1984:1984'
+        volumes:
+            - ./data:/data
+        environment:
+            - SERVER=0.0.0.0:1984
+            - RUST_LOG=info
+        restart: unless-stopped
