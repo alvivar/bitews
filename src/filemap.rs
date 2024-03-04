@@ -43,13 +43,13 @@ impl FileMap {
         let path = "web";
         let files = [
             "index.html",
-            "favicon.ico",
-            "style.css",
-            "js/pubsub.js",
-            "js/main.js",
-            "js/socket.js",
-            "js/ui.js",
-            "js/alert.js",
+            // "favicon.ico",
+            // "style.css",
+            // "js/pubsub.js",
+            // "js/main.js",
+            // "js/socket.js",
+            // "js/ui.js",
+            // "js/alert.js",
         ];
 
         let mut filemap = HashMap::new();
